@@ -52,6 +52,11 @@ SLEEP_MIN=60
 # 是否启用动态休眠（true / false）
 DYNAMIC_SLEEP=true
 
+# 启用动态休眠所需的单次最小下载量（字节）
+# 默认 1 GiB；单次下载量小于该值时，本轮不使用动态休眠
+# 设为 0 表示不按单次下载量限制动态休眠
+DYNAMIC_SLEEP_MIN_BYTES=1073741824
+
 # 每轮最多执行下载次数
 RUN_TIMES_MAX=3
 
@@ -69,6 +74,11 @@ RETRY_DELAY=5
 
 # 链接抓取间隔（秒），默认 6 小时
 FETCH_INTERVAL=21600
+
+# 抓取链接的最小文件大小（字节）
+# 默认 1 GiB；小于该值的抓取链接不会参与下载
+# 设为 0 表示不按文件大小过滤抓取链接
+FETCH_MIN_FILE_BYTES=1073741824
 
 # User-Agent
 USER_AGENT='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -141,6 +151,10 @@ next_wake_time() {
   date -d "+$1 seconds" +"%H:%M:%S"
 }
 
+normalize_url() {
+  printf '%s' "$1" | tr -d '`' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
 read_var() {
   FILE="$(data_file)"
   [ -f "$FILE" ] || { echo ""; return 0; }
@@ -155,22 +169,26 @@ apply_defaults() {
 
   is_uint "${SLEEP_MIN:-}" || SLEEP_MIN=60
   is_uint "${SLEEP_MAX:-}" || SLEEP_MAX=900
+  is_uint "${DYNAMIC_SLEEP_MIN_BYTES:-}" || DYNAMIC_SLEEP_MIN_BYTES=1073741824
   is_uint "${RUN_TIMES_MAX:-}" || RUN_TIMES_MAX=3
   is_uint "${CONNECT_TIMEOUT:-}" || CONNECT_TIMEOUT=15
   is_uint "${MAX_TIME:-}" || MAX_TIME=3000
   is_uint "${RETRY:-}" || RETRY=5
   is_uint "${RETRY_DELAY:-}" || RETRY_DELAY=5
   is_uint "${FETCH_INTERVAL:-}" || FETCH_INTERVAL=21600
+  is_uint "${FETCH_MIN_FILE_BYTES:-}" || FETCH_MIN_FILE_BYTES=1073741824
   is_uint "${MAX_DAILY_BYTES:-}" || MAX_DAILY_BYTES=0
 
   [ "$SLEEP_MIN" -lt 1 ] && SLEEP_MIN=60
   [ "$SLEEP_MAX" -lt 1 ] && SLEEP_MAX=900
+  [ "$DYNAMIC_SLEEP_MIN_BYTES" -lt 0 ] && DYNAMIC_SLEEP_MIN_BYTES=1073741824
   [ "$RUN_TIMES_MAX" -lt 1 ] && RUN_TIMES_MAX=1
   [ "$CONNECT_TIMEOUT" -lt 1 ] && CONNECT_TIMEOUT=15
   [ "$MAX_TIME" -lt 1 ] && MAX_TIME=3000
   [ "$RETRY" -lt 0 ] && RETRY=5
   [ "$RETRY_DELAY" -lt 0 ] && RETRY_DELAY=5
   [ "$FETCH_INTERVAL" -lt 60 ] && FETCH_INTERVAL=60
+  [ "$FETCH_MIN_FILE_BYTES" -lt 0 ] && FETCH_MIN_FILE_BYTES=1073741824
 
   return 0
 }
@@ -201,6 +219,7 @@ rand_n() {
 
 calc_sleep_time() {
   [ "$DYNAMIC_SLEEP" = "false" ] && { echo "$SLEEP_MIN"; return; }
+  [ "${ROUND_SMALL_DOWNLOAD:-false}" = "true" ] && { echo "$SLEEP_MIN"; return; }
 
   MIN="${SLEEP_MIN:-60}"
   MAX="${SLEEP_MAX:-900}"
@@ -352,7 +371,36 @@ fetch_links() {
 }
 
 validate_link() {
-  URL="$1"
+  URL="$(normalize_url "$1")"
+  [ -n "$URL" ] || return 1
+
+  extract_content_length() {
+    echo "$1" | tr -d '\r' | awk 'tolower($1)=="content-length:" {size=$2} END{print size}'
+  }
+
+  extract_content_range_total() {
+    echo "$1" | tr -d '\r' | awk 'tolower($1)=="content-range:" {split($0,a,"/"); size=a[2]; gsub(/[^0-9].*/, "", size)} END{print size}'
+  }
+
+  check_min_file_size() {
+    SIZE_VALUE="$1"
+    MIN_VALUE="${FETCH_MIN_FILE_BYTES:-0}"
+    is_uint "$MIN_VALUE" || MIN_VALUE=1073741824
+    [ "$MIN_VALUE" -le 0 ] && return 0
+
+    if ! is_uint "$SIZE_VALUE"; then
+      echo "❌ 无法确认文件大小，已排除：$URL"
+      return 2
+    fi
+
+    if [ "$SIZE_VALUE" -lt "$MIN_VALUE" ]; then
+      echo "❌ 文件过小：$(human_bytes "$SIZE_VALUE") < $(human_bytes "$MIN_VALUE")，已排除：$URL"
+      return 1
+    fi
+
+    echo "✅ 文件大小达标：$(human_bytes "$SIZE_VALUE") ≥ $(human_bytes "$MIN_VALUE")"
+    return 0
+  }
 
   set +e
   HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 15 \
@@ -367,23 +415,35 @@ validate_link() {
   if [ "$CURL_EXIT" -eq 0 ]; then
     case "$HTTP_CODE" in
       2*|3*)
-        echo "✅ 可用链接：$URL"
-        return 0
+        REMOTE_SIZE="$(extract_content_length "$HEAD_OUT")"
+        if check_min_file_size "$REMOTE_SIZE"; then
+          echo "✅ 可用链接：$URL"
+          return 0
+        else
+          SIZE_CHECK_EXIT=$?
+          [ "$SIZE_CHECK_EXIT" -eq 1 ] && return 1
+        fi
         ;;
     esac
   fi
 
   set +e
-  curl -L --range 0-0 --connect-timeout 5 --max-time 15 \
+  RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 15 \
     -A "$USER_AGENT" \
+    -D - \
     -o /dev/null \
-    "$URL" >/dev/null 2>&1
+    "$URL" 2>&1)"
   CURL_EXIT=$?
   set -e
 
   if [ "$CURL_EXIT" -eq 0 ]; then
-    echo "✅ 可用链接：$URL"
-    return 0
+    REMOTE_SIZE="$(extract_content_range_total "$RANGE_OUT")"
+    [ -n "$REMOTE_SIZE" ] || REMOTE_SIZE="$(extract_content_length "$RANGE_OUT")"
+    if check_min_file_size "$REMOTE_SIZE"; then
+      echo "✅ 可用链接：$URL"
+      return 0
+    fi
+    return 1
   fi
 
   case "$CURL_EXIT" in
@@ -397,20 +457,36 @@ validate_link() {
 check_fetched_links() {
   FETCHED_LIST="/app/links/fetched-links.txt"
   VALIDATED_LIST="/tmp/validated_urls.list"
+  INVALID_LIST="/tmp/invalid_urls.list"
 
   [ -f "$FETCHED_LIST" ] || return 1
   [ -s "$FETCHED_LIST" ] || return 1
 
   > "$VALIDATED_LIST"
+  > "$INVALID_LIST"
 
   echo "🔍 正在逐条检查抓取到的链接..."
 
   while IFS= read -r URL; do
+    URL="$(normalize_url "$URL")"
     [ -n "$URL" ] || continue
-    validate_link "$URL" && echo "$URL" >> "$VALIDATED_LIST"
+    if validate_link "$URL"; then
+      echo "$URL" >> "$VALIDATED_LIST"
+    else
+      echo "$URL" >> "$INVALID_LIST"
+    fi
   done < "$FETCHED_LIST"
 
   [ -s "$VALIDATED_LIST" ] || return 1
+
+  # 只保留校验通过的抓取链接，校验失败的链接不参与后续下载
+  awk 'NF && !seen[$0]++' "$VALIDATED_LIST" > "${VALIDATED_LIST}.tmp"
+  mv "${VALIDATED_LIST}.tmp" "$VALIDATED_LIST"
+  cp "$VALIDATED_LIST" "$FETCHED_LIST"
+
+  if [ -s "$INVALID_LIST" ]; then
+    echo "⚠️ 检查不通过的链接数：$(wc -l < "$INVALID_LIST")（已排除，不参与下载）"
+  fi
 
   echo "✅ 有效链接数：$(wc -l < "$VALIDATED_LIST")"
   return 0
@@ -441,7 +517,7 @@ while true; do
   fi
 
   FINAL_LIST="/tmp/urls.list"
-  echo "$FINAL_BASE_URLS" | tr ',;' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF && !seen[$0]++' > "$FINAL_LIST"
+  echo "$FINAL_BASE_URLS" | tr ',;' '\n' | tr -d '`' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF && !seen[$0]++' > "$FINAL_LIST"
 
   TOTAL="$(wc -l < "$FINAL_LIST")"
   if [ "$TOTAL" -lt 1 ]; then
@@ -472,6 +548,7 @@ while true; do
   fi
 
   RUN_TIMES="$(rand_n "$RUN_TIMES_MAX")"
+  ROUND_SMALL_DOWNLOAD=false
   echo ""
   echo "🚀 开始新一轮下载任务（共 $RUN_TIMES 次）"
 
@@ -496,8 +573,10 @@ while true; do
     RATE_OPT=""
     [ -n "$LIMIT_RATE" ] && [ "$LIMIT_RATE" != "0" ] && RATE_OPT="--limit-rate $LIMIT_RATE"
 
+    METRICS_FILE="/tmp/curl_metrics_${$}_${i}.txt"
+    PROGRESS_OPT="-#"
     set +e
-    OUT="$(curl -L -o /dev/null -# \
+    curl -L -o /dev/null $PROGRESS_OPT \
       --fail \
       $RATE_OPT \
       --connect-timeout "$CONNECT_TIMEOUT" \
@@ -505,7 +584,8 @@ while true; do
       --retry "$RETRY" \
       --retry-delay "$RETRY_DELAY" \
       -A "$USER_AGENT" \
-      -w "\nSIZE=%{size_download}\nTIME=%{time_total}\n" "$URL" 2>&1)"
+      -w "SIZE=%{size_download}\nTIME=%{time_total}\n" \
+      "$URL" > "$METRICS_FILE"
     CURL_EXIT=$?
     set -e
 
@@ -526,12 +606,18 @@ while true; do
       echo ""
     fi
 
-    SIZE="$(echo "$OUT" | grep '^SIZE=' | tail -n 1 | cut -d= -f2 | tr -d '\r\n')"
-    TIME="$(echo "$OUT" | grep '^TIME=' | tail -n 1 | cut -d= -f2 | cut -d. -f1 | tr -d '\r\n')"
+    SIZE="$(grep '^SIZE=' "$METRICS_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2 | tr -d '\r\n')"
+    TIME="$(grep '^TIME=' "$METRICS_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2 | cut -d. -f1 | tr -d '\r\n')"
+    rm -f "$METRICS_FILE"
     SIZE="${SIZE:-0}"
     TIME="${TIME:-0}"
     is_uint "$SIZE" || SIZE=0
     is_uint "$TIME" || TIME=0
+
+    if [ "$SIZE" -gt 0 ] && [ "$DYNAMIC_SLEEP_MIN_BYTES" -gt 0 ] && [ "$SIZE" -lt "$DYNAMIC_SLEEP_MIN_BYTES" ]; then
+      ROUND_SMALL_DOWNLOAD=true
+      echo "ℹ️ 单次下载量 $(human_bytes "$SIZE") 小于动态休眠阈值 $(human_bytes "$DYNAMIC_SLEEP_MIN_BYTES")，本轮不启用动态休眠"
+    fi
 
     [ "$SIZE" -gt 0 ] && update_stats "$SIZE" "$TIME"
 
@@ -549,7 +635,13 @@ while true; do
   WAKE_TIME="$(next_wake_time "$SLEEP_TIME")"
 
   echo ""
-  echo "😴 本轮结束，随机休眠 $(human_seconds "$SLEEP_TIME")..."
+  if [ "$DYNAMIC_SLEEP" = "false" ]; then
+    echo "😴 本轮结束，固定休眠 $(human_seconds "$SLEEP_TIME")（动态休眠已关闭）..."
+  elif [ "$ROUND_SMALL_DOWNLOAD" = "true" ]; then
+    echo "😴 本轮结束，固定休眠 $(human_seconds "$SLEEP_TIME")（单次下载量小于阈值，未启用动态休眠）..."
+  else
+    echo "😴 本轮结束，随机休眠 $(human_seconds "$SLEEP_TIME")..."
+  fi
   echo "⏰ 下次唤醒时间：$(date +%H:%M:%S) → $WAKE_TIME"
   echo ""
 
@@ -628,6 +720,8 @@ https://mirrors.aliyun.com/ubuntu-releases/22.04/" | while IFS= read -r base_url
 done
 
 sed -i '/^$/d' "$OUTPUT_FILE"
+grep -E '^https?://' "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp" || true
+mv "${OUTPUT_FILE}.tmp" "$OUTPUT_FILE"
 sort -u "$OUTPUT_FILE" -o "$OUTPUT_FILE"
 
 COUNT="$(wc -l < "$OUTPUT_FILE")"

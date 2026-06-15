@@ -8,9 +8,94 @@ set -e
 
 BASE_DIR="$(dirname "$0")"
 OUTPUT_FILE="$BASE_DIR/links/fetched-links.txt"
+FETCH_MIN_FILE_BYTES=${FETCH_MIN_FILE_BYTES:-1073741824}
 
 mkdir -p "$BASE_DIR/links"
 > "$OUTPUT_FILE"
+
+is_uint() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+human_bytes() {
+  VALUE="${1:-0}"
+  is_uint "$VALUE" || VALUE=0
+  numfmt --to=iec-i --suffix=B "$VALUE" 2>/dev/null || echo "${VALUE}B"
+}
+
+extract_content_length() {
+  echo "$1" | tr -d '\r' | awk 'tolower($1)=="content-length:" {size=$2} END{print size}'
+}
+
+extract_content_range_total() {
+  echo "$1" | tr -d '\r' | awk 'tolower($1)=="content-range:" {split($0,a,"/"); size=a[2]; gsub(/[^0-9].*/, "", size)} END{print size}'
+}
+
+remote_file_size_ok() {
+  URL="$1"
+  MIN_VALUE="$FETCH_MIN_FILE_BYTES"
+  is_uint "$MIN_VALUE" || MIN_VALUE=1073741824
+  [ "$MIN_VALUE" -le 0 ] && return 0
+
+  set +e
+  HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 15 \
+    -w "\nHTTP_CODE=%{http_code}\n" \
+    "$URL" 2>&1)"
+  CURL_EXIT=$?
+  set -e
+
+  if [ "$CURL_EXIT" -eq 0 ]; then
+    HTTP_CODE="$(echo "$HEAD_OUT" | grep HTTP_CODE | tail -n 1 | cut -d= -f2)"
+    case "$HTTP_CODE" in
+      2*|3*)
+        REMOTE_SIZE="$(extract_content_length "$HEAD_OUT")"
+        if is_uint "$REMOTE_SIZE"; then
+          if [ "$REMOTE_SIZE" -ge "$MIN_VALUE" ]; then
+            echo "✅ 文件大小达标，已抓取：$(human_bytes "$REMOTE_SIZE") ≥ $(human_bytes "$MIN_VALUE") $URL"
+            return 0
+          fi
+          echo "❌ 文件过小，未抓取：$(human_bytes "$REMOTE_SIZE") < $(human_bytes "$MIN_VALUE") $URL"
+          return 1
+        fi
+        ;;
+    esac
+  fi
+
+  set +e
+  RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 15 \
+    -D - \
+    -o /dev/null \
+    "$URL" 2>&1)"
+  CURL_EXIT=$?
+  set -e
+
+  if [ "$CURL_EXIT" -eq 0 ]; then
+    REMOTE_SIZE="$(extract_content_range_total "$RANGE_OUT")"
+    [ -n "$REMOTE_SIZE" ] || REMOTE_SIZE="$(extract_content_length "$RANGE_OUT")"
+    if is_uint "$REMOTE_SIZE"; then
+      if [ "$REMOTE_SIZE" -ge "$MIN_VALUE" ]; then
+        echo "✅ 文件大小达标，已抓取：$(human_bytes "$REMOTE_SIZE") ≥ $(human_bytes "$MIN_VALUE") $URL"
+        return 0
+      fi
+      echo "❌ 文件过小，未抓取：$(human_bytes "$REMOTE_SIZE") < $(human_bytes "$MIN_VALUE") $URL"
+      return 1
+    fi
+  fi
+
+  echo "❌ 无法确认文件大小，未抓取：$URL"
+  return 1
+}
+
+append_if_large_enough() {
+  URL="$1"
+  [ -n "$URL" ] || return 0
+  if remote_file_size_ok "$URL"; then
+    echo "$URL" >> "$OUTPUT_FILE"
+  fi
+}
 
 echo "🔍 正在从 GitHub API 抓取 Release 资源..."
 
@@ -27,7 +112,10 @@ nodejs/node" | while IFS= read -r repo; do
   echo "$RESP" | \
   grep "browser_download_url" | \
   grep -E "\.(tar\.gz|zip|tar\.xz|pkg|dmg|exe)" | \
-  cut -d '"' -f 4 >> "$OUTPUT_FILE"
+  cut -d '"' -f 4 | \
+  while IFS= read -r URL; do
+    append_if_large_enough "$URL"
+  done
 done
 
 echo "🔍 正在从国内镜像站抓取资源..."
@@ -60,8 +148,8 @@ https://mirrors.aliyun.com/ubuntu-releases/22.04/" | while IFS= read -r base_url
       -e 's|https:/|https://|' \
       -e 's|http:/|http://|')"
 
-    echo "$FULL_URL"
-  done >> "$OUTPUT_FILE"
+    append_if_large_enough "$FULL_URL"
+  done
 done
 
 sed -i '/^$/d' "$OUTPUT_FILE"

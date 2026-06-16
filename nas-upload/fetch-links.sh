@@ -2,6 +2,9 @@
 # =========================================================
 #  Traffic Keeper - 独立链接抓取脚本
 #  输出：./links/fetched-links.txt
+#  逻辑：
+#    1. 能确认大小的，达标才抓取
+#    2. 无法确认大小的，保留到下载时判断
 # =========================================================
 
 set -e
@@ -34,12 +37,15 @@ extract_content_range_total() {
   echo "$1" | tr -d '\r' | awk 'tolower($1)=="content-range:" {split($0,a,"/"); size=a[2]; gsub(/[^0-9].*/, "", size)} END{print size}'
 }
 
-remote_file_size_ok() {
+# 尝试获取文件大小
+# 返回：0=达标，1=过小，2=无法确认
+remote_file_size_check() {
   URL="$1"
   MIN_VALUE="$FETCH_MIN_FILE_BYTES"
   is_uint "$MIN_VALUE" || MIN_VALUE=1073741824
   [ "$MIN_VALUE" -le 0 ] && return 0
 
+  # 尝试 HEAD 请求
   set +e
   HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 15 \
     -w "\nHTTP_CODE=%{http_code}\n" \
@@ -64,6 +70,7 @@ remote_file_size_ok() {
     esac
   fi
 
+  # 尝试 Range 请求
   set +e
   RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 15 \
     -D - \
@@ -85,14 +92,17 @@ remote_file_size_ok() {
     fi
   fi
 
-  echo "❌ 无法确认文件大小，未抓取：$URL"
-  return 1
+  # 无法确认大小，保留到下载时判断
+  echo "⚠️ 无法确认文件大小，保留到下载时判断：$URL"
+  return 2
 }
 
 append_if_large_enough() {
   URL="$1"
   [ -n "$URL" ] || return 0
-  if remote_file_size_ok "$URL"; then
+  remote_file_size_check "$URL"
+  RESULT=$?
+  if [ "$RESULT" -eq 0 ] || [ "$RESULT" -eq 2 ]; then
     echo "$URL" >> "$OUTPUT_FILE"
   fi
 }

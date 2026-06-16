@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # =========================================================
 #  Traffic Keeper - FnOS / 飞牛 NAS 一键安装脚本
-#  Version : v2.6.8-fnos-fixed
+#  Version : 2.6.9
 #  Update  :
+#   - 抓取阶段按远端文件大小过滤，小文件或无法确认大小的链接不写入待下载列表
 #   - 固定安装目录：/vol2/1000/Docker/traffic-keeper
 #   - 修复 .env 多行变量与 Docker Compose env_file 冲突
 #   - 修复 URL 反引号导致的命令执行问题

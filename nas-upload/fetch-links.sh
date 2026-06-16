@@ -45,9 +45,10 @@ remote_file_size_check() {
   is_uint "$MIN_VALUE" || MIN_VALUE=1073741824
   [ "$MIN_VALUE" -le 0 ] && return 0
 
-  # 尝试 HEAD 请求
+  # 尝试 HEAD 请求，使用 --fail 确保 4xx/5xx 返回非 0 退出码
   set +e
   HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 15 \
+    --fail \
     -w "\nHTTP_CODE=%{http_code}\n" \
     "$URL" 2>&1)"
   CURL_EXIT=$?
@@ -70,9 +71,10 @@ remote_file_size_check() {
     esac
   fi
 
-  # 尝试 Range 请求
+  # 尝试 Range 请求，同样使用 --fail
   set +e
   RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 15 \
+    --fail \
     -D - \
     -o /dev/null \
     "$URL" 2>&1)"
@@ -123,10 +125,11 @@ while IFS= read -r repo; do
   echo "$RESP" | grep -q "browser_download_url" || continue
 
   URLS_LIST="/tmp/tk_urls_$$.txt"
+  # grep 输出可能包含 \r，需要清理以避免 URL 包含回车符
   echo "$RESP" | \
     grep "browser_download_url" | \
     grep -E "\.(tar\.gz|zip|tar\.xz|pkg|dmg|exe)" | \
-    cut -d '"' -f 4 > "$URLS_LIST"
+    cut -d '"' -f 4 | tr -d '\r' > "$URLS_LIST"
 
   while IFS= read -r URL; do
     append_if_large_enough "$URL"
@@ -155,8 +158,9 @@ while IFS= read -r base_url; do
   BASE_PATH="$base_url/"
 
   FILES_LIST="/tmp/tk_files_$$.txt"
+  # grep 输出需要清理 \r，防止 URL 包含回车符导致 curl 行为异常
   echo "$content" | grep -oE 'href="[^"]+\.(iso|tar\.gz|zip|xz|exe|pkg)"' | \
-    sed 's/href="//;s/"//' > "$FILES_LIST"
+    sed 's/href="//;s/"//' | tr -d '\r' > "$FILES_LIST"
 
   while IFS= read -r file; do
     file="$(echo "$file" | sed 's|^\./||')"

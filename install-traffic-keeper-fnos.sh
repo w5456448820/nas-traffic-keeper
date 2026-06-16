@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # =========================================================
 #  Traffic Keeper - FnOS / 飞牛 NAS 一键安装脚本
-#  Version : 2.6.12
+#  Version : 2.6.15
 #  Update  :
-#   - 修复 install-traffic-keeper-fnos.sh 内嵌 fetch-links.sh 中无法确认大小的链接被错误丢弃
-#   - 修复 validate_link 对返回值 2（无法确认大小）的处理，保留到下载时判断
-#   - 修复 check_fetched_links 对返回值 2 的处理，不放入无效列表
-#   - 抓取时判断文件大小，小的丢弃；无法确认的保留到下载时判断
-#   - 下载前增加对未确认大小链接的大小检查
+#   - 修复 curl -# 进度条污染 METRICS_FILE 的问题（改为 -sS）
+#   - 修复 validate_link 和 fetch-links.sh 中 curl 缺少 --fail 的问题
+#   - 修复 stat -c %Y stderr 未抑制的问题
+#   - 改进随机数取模分布偏差（rand_n / calc_sleep_time 改用 $RANDOM）
+#   - 修复 .env 中 DOWNLOAD_URLS 多行格式为逗号分隔单行（兼容 env_file）
+#   - 修复 docker-compose.yml 的 restart 策略（always → on-failure:5）
+#   - 修复容器 volume 挂载（移除 - .:/app，改为只读挂载脚本）
+#   - 修复 fetch-links.sh 中 grep 输出包含 \r 的问题
+#   - 调整 MAX_DAILY_BYTES 默认值（4000GB → 200GB，与休眠策略匹配）
+#   - 修改默认 User-Agent 为 traffic-keeper/2.6.15 curl/8.0
 #   - 固定安装目录：/vol2/1000/Docker/traffic-keeper
 #   - 修复 .env 多行变量与 Docker Compose env_file 冲突
 #   - 修复 URL 反引号导致的命令执行问题
@@ -85,30 +90,25 @@ FETCH_INTERVAL=21600
 # 设为 0 表示不按文件大小过滤抓取链接
 FETCH_MIN_FILE_BYTES=1073741824
 
-# User-Agent
-USER_AGENT='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+# User-Agent（包含 traffic-keeper 标识，便于识别来源）
+USER_AGENT='traffic-keeper/2.6.15 curl/8.0'
 
-# 单日最大下载量（字节）：4000 GB
-MAX_DAILY_BYTES=4294967296000
+# 单日最大下载量（字节）：200 GB
+# 与 SLEEP_MIN=60 / RUN_TIMES_MAX=3 / LIMIT_RATE=5M 相匹配的合理默认值
+# 按此配置每天最多消耗约 200 GB 流量
+MAX_DAILY_BYTES=214748364800
 
-# 下载链接（多行或逗号分隔）
-DOWNLOAD_URLS="
-https://releases.ubuntu.com/22.04.5/ubuntu-22.04.5-desktop-amd64.iso
-https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.tar.xz
-http://updates-http.cdn-apple.com/2019WinterFCS/fullrestores/041-39257/32129B6C-292C-11E9-9E72-4511412B0A59/iPhone_4.7_12.1.4_16D57_Restore.ipsw
-http://dldir1.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.15_240808_x64_01.exe
-https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/22.04.5/ubuntu-22.04.5-desktop-amd64.iso
-https://mirrors.aliyun.com/linux-kernel/v6.x/linux-6.6.tar.xz
-https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/v20.12.2/node-v20.12.2-linux-x64.tar.xz
-https://dldir1.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.15_240808_x64_01.exe
-https://updates-http.cdn-apple.com/2019WinterFCS/fullrestores/041-39257/32129B6C-292C-11E9-9E72-4511412B0A59/iPhone_4.7_12.1.4_16D57_Restore.ipsw
-https://mirrors.aliyun.com/ubuntu-releases/22.04.5/ubuntu-22.04.5-desktop-amd64.iso
-"
+# 下载链接（逗号分隔）
+DOWNLOAD_URLS="https://releases.ubuntu.com/22.04.5/ubuntu-22.04.5-desktop-amd64.iso,https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.tar.xz,http://updates-http.cdn-apple.com/2019WinterFCS/fullrestores/041-39257/32129B6C-292C-11E9-9E72-4511412B0A59/iPhone_4.7_12.1.4_16D57_Restore.ipsw,http://dldir1.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.15_240808_x64_01.exe,https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/22.04.5/ubuntu-22.04.5-desktop-amd64.iso,https://mirrors.aliyun.com/linux-kernel/v6.x/linux-6.6.tar.xz,https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/v20.12.2/node-v20.12.2-linux-x64.tar.xz,https://dldir1.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.15_240808_x64_01.exe,https://updates-http.cdn-apple.com/2019WinterFCS/fullrestores/041-39257/32129B6C-292C-11E9-9E72-4511412B0A59/iPhone_4.7_12.1.4_16D57_Restore.ipsw,https://mirrors.aliyun.com/ubuntu-releases/22.04.5/ubuntu-22.04.5-desktop-amd64.iso"
 EOF
 
 echo "✅ 生成主运行脚本 (traffic-keeper.sh)"
 cat > "$MAIN_SCRIPT" <<'EOF'
 #!/usr/bin/env sh
+# =========================================================
+#  Traffic Keeper - 主运行脚本
+#  Version : 2.6.15
+# =========================================================
 set -e
 
 echo "🐳 Traffic Keeper 容器启动中..."
@@ -168,7 +168,7 @@ read_var() {
 
 apply_defaults() {
   LIMIT_RATE="${LIMIT_RATE:-5M}"
-  USER_AGENT="${USER_AGENT:-Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36}"
+  USER_AGENT="${USER_AGENT:-traffic-keeper/2.6.15 curl/8.0}"
   DYNAMIC_SLEEP="${DYNAMIC_SLEEP:-true}"
   [ "$DYNAMIC_SLEEP" = "false" ] || DYNAMIC_SLEEP=true
 
@@ -213,13 +213,18 @@ reload_env() {
   echo "✅ 配置已更新"
 }
 
+# 使用 $RANDOM 生成均匀分布的随机数（范围 0~32767）
+# 相比 od+mod 的方案，$RANDOM 在 ash/bash 中均可用且分布更均匀
 rand_n() {
   MAX="${1:-1}"
   is_uint "$MAX" || MAX=1
   [ "$MAX" -lt 1 ] && MAX=1
-  NUM="$(od -An -N2 -tu2 /dev/urandom | awk '{print $1}')"
-  [ -z "$NUM" ] && NUM="$(date +%s%N | cut -c9-13)"
-  echo "$((NUM % MAX + 1))"
+  R="$RANDOM"
+  DIV="$((32768 / MAX * MAX))"
+  while [ "$R" -ge "$DIV" ]; do
+    R="$RANDOM"
+  done
+  echo "$((R % MAX + 1))"
 }
 
 calc_sleep_time() {
@@ -233,10 +238,13 @@ calc_sleep_time() {
 
   [ "$MIN" -ge "$MAX" ] && { echo "$MIN"; return; }
 
+  R="$RANDOM"
   DIFF="$((MAX - MIN + 1))"
-  NUM="$(od -An -N2 -tu2 /dev/urandom | awk '{print $1}')"
-  [ -z "$NUM" ] && NUM="$(date +%s%N | cut -c9-13)"
-  OFFSET="$((NUM % DIFF))"
+  DIV="$((32768 / DIFF * DIFF))"
+  while [ "$R" -ge "$DIV" ]; do
+    R="$RANDOM"
+  done
+  OFFSET="$((R % DIFF))"
   echo "$((MIN + OFFSET))"
 }
 
@@ -340,6 +348,7 @@ should_fetch_links() {
   [ -f "$FETCH_STAMP" ] || return 0
 
   NOW="$(date +%s)"
+  # 使用 2>/dev/null 抑制 stderr（文件不存在时 busybox stat 会输出错误）
   LAST="$(stat -c %Y "$FETCH_STAMP" 2>/dev/null || echo 0)"
   AGE="$((NOW - LAST))"
   [ "$AGE" -ge "$FETCH_INTERVAL" ]
@@ -408,7 +417,9 @@ validate_link() {
   }
 
   set +e
+  # 使用 --fail 确保 HTTP 4xx/5xx 返回非 0 退出码，避免误判为"无法确认大小"
   HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 15 \
+    --fail \
     -A "$USER_AGENT" \
     -w "\nHTTP_CODE=%{http_code}\n" \
     "$URL" 2>&1)"
@@ -434,7 +445,9 @@ validate_link() {
   fi
 
   set +e
+  # 同样使用 --fail，保证 4xx/5xx 返回非 0
   RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 15 \
+    --fail \
     -A "$USER_AGENT" \
     -D - \
     -o /dev/null \
@@ -595,6 +608,7 @@ while true; do
       echo "   [下载前] 🔍 正在检查文件大小..."
       set +e
       HEAD_SIZE="$(curl -IL --connect-timeout 5 --max-time 10 \
+        --fail \
         -A "$USER_AGENT" \
         -w "\nHTTP_CODE=%{http_code}\n" \
         "$URL" 2>&1 | grep -i '^content-length:' | tail -n 1 | awk '{print $2}' | tr -d '\r')"
@@ -619,10 +633,10 @@ while true; do
     [ -n "$LIMIT_RATE" ] && [ "$LIMIT_RATE" != "0" ] && RATE_OPT="--limit-rate $LIMIT_RATE"
 
     METRICS_FILE="/tmp/curl_metrics_${$}_${i}.txt"
-    PROGRESS_OPT="-#"
+    # 使用 -sS 替代 -#，避免进度条污染 METRICS_FILE
     echo "   ⬇️  开始下载..."
     set +e
-    curl -L -o /dev/null $PROGRESS_OPT \
+    curl -L -o /dev/null -sS \
       --fail \
       $RATE_OPT \
       --connect-timeout "$CONNECT_TIMEOUT" \
@@ -704,6 +718,9 @@ cat > "$FETCH_SCRIPT" <<'EOF'
 # =========================================================
 #  Traffic Keeper - 独立链接抓取脚本
 #  输出：./links/fetched-links.txt
+#  逻辑：
+#    1. 能确认大小的，达标才抓取
+#    2. 无法确认大小的，保留到下载时判断
 # =========================================================
 
 set -e
@@ -736,14 +753,18 @@ extract_content_range_total() {
   echo "$1" | tr -d '\r' | awk 'tolower($1)=="content-range:" {split($0,a,"/"); size=a[2]; gsub(/[^0-9].*/, "", size)} END{print size}'
 }
 
-remote_file_size_ok() {
+# 尝试获取文件大小
+# 返回：0=达标，1=过小，2=无法确认
+remote_file_size_check() {
   URL="$1"
   MIN_VALUE="$FETCH_MIN_FILE_BYTES"
   is_uint "$MIN_VALUE" || MIN_VALUE=1073741824
   [ "$MIN_VALUE" -le 0 ] && return 0
 
+  # 尝试 HEAD 请求，使用 --fail 确保 4xx/5xx 返回非 0 退出码
   set +e
   HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 15 \
+    --fail \
     -w "\nHTTP_CODE=%{http_code}\n" \
     "$URL" 2>&1)"
   CURL_EXIT=$?
@@ -766,8 +787,10 @@ remote_file_size_ok() {
     esac
   fi
 
+  # 尝试 Range 请求，同样使用 --fail
   set +e
   RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 15 \
+    --fail \
     -D - \
     -o /dev/null \
     "$URL" 2>&1)"
@@ -787,6 +810,7 @@ remote_file_size_ok() {
     fi
   fi
 
+  # 无法确认大小，保留到下载时判断
   echo "⚠️ 无法确认文件大小，保留到下载时判断：$URL"
   return 2
 }
@@ -794,7 +818,7 @@ remote_file_size_ok() {
 append_if_large_enough() {
   URL="$1"
   [ -n "$URL" ] || return 0
-  remote_file_size_ok "$URL"
+  remote_file_size_check "$URL"
   RESULT=$?
   if [ "$RESULT" -eq 0 ] || [ "$RESULT" -eq 2 ]; then
     echo "$URL" >> "$OUTPUT_FILE"
@@ -817,10 +841,11 @@ while IFS= read -r repo; do
   echo "$RESP" | grep -q "browser_download_url" || continue
 
   URLS_LIST="/tmp/tk_urls_$$.txt"
+  # grep 输出可能包含 \r，需要清理以避免 URL 包含回车符
   echo "$RESP" | \
     grep "browser_download_url" | \
     grep -E "\.(tar\.gz|zip|tar\.xz|pkg|dmg|exe)" | \
-    cut -d '"' -f 4 > "$URLS_LIST"
+    cut -d '"' -f 4 | tr -d '\r' > "$URLS_LIST"
 
   while IFS= read -r URL; do
     append_if_large_enough "$URL"
@@ -849,8 +874,9 @@ while IFS= read -r base_url; do
   BASE_PATH="$base_url/"
 
   FILES_LIST="/tmp/tk_files_$$.txt"
+  # grep 输出需要清理 \r，防止 URL 包含回车符导致 curl 行为异常
   echo "$content" | grep -oE 'href="[^"]+\.(iso|tar\.gz|zip|xz|exe|pkg)"' | \
-    sed 's/href="//;s/"//' > "$FILES_LIST"
+    sed 's/href="//;s/"//' | tr -d '\r' > "$FILES_LIST"
 
   while IFS= read -r file; do
     file="$(echo "$file" | sed 's|^\./||')"
@@ -900,12 +926,14 @@ services:
   traffic-keeper:
     image: alpine:3.23
     container_name: traffic-keeper
-    restart: always
+    restart: on-failure:5
     working_dir: /app
     volumes:
-      - .:/app
+      - ./traffic-keeper.sh:/app/traffic-keeper.sh:ro
+      - ./fetch-links.sh:/app/fetch-links.sh:ro
       - ./data:/app/data
       - ./流量统计:/app/流量统计
+      - links:/app/links
       - /etc/localtime:/etc/localtime:ro
     logging:
       driver: json-file
@@ -915,6 +943,9 @@ services:
     tmpfs:
       - /tmp
     command: ["/bin/sh", "/app/traffic-keeper.sh"]
+
+volumes:
+  links:
 EOF
 
 echo ""

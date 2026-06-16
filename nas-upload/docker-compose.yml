@@ -2,12 +2,14 @@ services:
   traffic-keeper:
     image: alpine:3.23
     container_name: traffic-keeper
-    restart: always
+    restart: on-failure:5
     working_dir: /app
     volumes:
-      - .:/app
+      - ./traffic-keeper.sh:/app/traffic-keeper.sh:ro
+      - ./fetch-links.sh:/app/fetch-links.sh:ro
       - ./data:/app/data
       - ./流量统计:/app/流量统计
+      - links:/app/links
       - /etc/localtime:/etc/localtime:ro
     logging:
       driver: json-file
@@ -17,3 +19,6 @@ services:
     tmpfs:
       - /tmp
     command: ["/bin/sh", "/app/traffic-keeper.sh"]
+
+volumes:
+  links:

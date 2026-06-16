@@ -1,4 +1,8 @@
 #!/usr/bin/env sh
+# =========================================================
+#  Traffic Keeper - 主运行脚本
+#  Version : 2.6.15
+# =========================================================
 set -e
 
 echo "🐳 Traffic Keeper 容器启动中..."
@@ -58,7 +62,7 @@ read_var() {
 
 apply_defaults() {
   LIMIT_RATE="${LIMIT_RATE:-5M}"
-  USER_AGENT="${USER_AGENT:-Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36}"
+  USER_AGENT="${USER_AGENT:-traffic-keeper/2.6.15 curl/8.0}"
   DYNAMIC_SLEEP="${DYNAMIC_SLEEP:-true}"
   [ "$DYNAMIC_SLEEP" = "false" ] || DYNAMIC_SLEEP=true
 
@@ -103,13 +107,19 @@ reload_env() {
   echo "✅ 配置已更新"
 }
 
+# 使用 $RANDOM 生成均匀分布的随机数（范围 0~32767）
+# 相比 od+mod 的方案，$RANDOM 在 ash/bash 中均可用且分布更均匀
 rand_n() {
   MAX="${1:-1}"
   is_uint "$MAX" || MAX=1
   [ "$MAX" -lt 1 ] && MAX=1
-  NUM="$(od -An -N2 -tu2 /dev/urandom | awk '{print $1}')"
-  [ -z "$NUM" ] && NUM="$(date +%s%N | cut -c9-13)"
-  echo "$((NUM % MAX + 1))"
+  # 限制 MAX 过大时多次循环保证均匀分布
+  R="$RANDOM"
+  DIV="$((32768 / MAX * MAX))"
+  while [ "$R" -ge "$DIV" ]; do
+    R="$RANDOM"
+  done
+  echo "$((R % MAX + 1))"
 }
 
 calc_sleep_time() {
@@ -123,10 +133,13 @@ calc_sleep_time() {
 
   [ "$MIN" -ge "$MAX" ] && { echo "$MIN"; return; }
 
+  R="$RANDOM"
   DIFF="$((MAX - MIN + 1))"
-  NUM="$(od -An -N2 -tu2 /dev/urandom | awk '{print $1}')"
-  [ -z "$NUM" ] && NUM="$(date +%s%N | cut -c9-13)"
-  OFFSET="$((NUM % DIFF))"
+  DIV="$((32768 / DIFF * DIFF))"
+  while [ "$R" -ge "$DIV" ]; do
+    R="$RANDOM"
+  done
+  OFFSET="$((R % DIFF))"
   echo "$((MIN + OFFSET))"
 }
 
@@ -230,6 +243,7 @@ should_fetch_links() {
   [ -f "$FETCH_STAMP" ] || return 0
 
   NOW="$(date +%s)"
+  # 使用 2>/dev/null 抑制 stderr（文件不存在时 busybox stat 会输出错误）
   LAST="$(stat -c %Y "$FETCH_STAMP" 2>/dev/null || echo 0)"
   AGE="$((NOW - LAST))"
   [ "$AGE" -ge "$FETCH_INTERVAL" ]
@@ -298,7 +312,9 @@ validate_link() {
   }
 
   set +e
+  # 使用 --fail 确保 HTTP 4xx/5xx 返回非 0 退出码，避免误判为"无法确认大小"
   HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 15 \
+    --fail \
     -A "$USER_AGENT" \
     -w "\nHTTP_CODE=%{http_code}\n" \
     "$URL" 2>&1)"
@@ -324,7 +340,9 @@ validate_link() {
   fi
 
   set +e
+  # 同样使用 --fail，保证 4xx/5xx 返回非 0
   RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 15 \
+    --fail \
     -A "$USER_AGENT" \
     -D - \
     -o /dev/null \
@@ -485,6 +503,7 @@ while true; do
       echo "   [下载前] 🔍 正在检查文件大小..."
       set +e
       HEAD_SIZE="$(curl -IL --connect-timeout 5 --max-time 10 \
+        --fail \
         -A "$USER_AGENT" \
         -w "\nHTTP_CODE=%{http_code}\n" \
         "$URL" 2>&1 | grep -i '^content-length:' | tail -n 1 | awk '{print $2}' | tr -d '\r')"
@@ -509,10 +528,10 @@ while true; do
     [ -n "$LIMIT_RATE" ] && [ "$LIMIT_RATE" != "0" ] && RATE_OPT="--limit-rate $LIMIT_RATE"
 
     METRICS_FILE="/tmp/curl_metrics_${$}_${i}.txt"
-    PROGRESS_OPT="-#"
+    # 修复：使用 -sS 替代 -#，避免进度条污染 METRICS_FILE
     echo "   ⬇️  开始下载..."
     set +e
-    curl -L -o /dev/null $PROGRESS_OPT \
+    curl -L -o /dev/null -sS \
       --fail \
       $RATE_OPT \
       --connect-timeout "$CONNECT_TIMEOUT" \

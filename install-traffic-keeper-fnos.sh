@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # =========================================================
 #  Traffic Keeper - FnOS / 飞牛 NAS 一键安装脚本
-#  Version : 2.6.11
+#  Version : 2.6.12
 #  Update  :
-#   - 修复管道子 shell 中返回值丢失导致无法确认大小的链接未被保留
-#   - 修复 URL 拼接产生多余斜杠的 bug
+#   - 修复 install-traffic-keeper-fnos.sh 内嵌 fetch-links.sh 中无法确认大小的链接被错误丢弃
+#   - 修复 validate_link 对返回值 2（无法确认大小）的处理，保留到下载时判断
+#   - 修复 check_fetched_links 对返回值 2 的处理，不放入无效列表
 #   - 抓取时判断文件大小，小的丢弃；无法确认的保留到下载时判断
 #   - 下载前增加对未确认大小链接的大小检查
 #   - 固定安装目录：/vol2/1000/Docker/traffic-keeper
@@ -393,16 +394,16 @@ validate_link() {
     [ "$MIN_VALUE" -le 0 ] && return 0
 
     if ! is_uint "$SIZE_VALUE"; then
-      echo "❌ 无法确认文件大小，已排除：$URL"
+      echo "   [校验] ⚠️ 无法确认文件大小，保留到下载时判断：$URL"
       return 2
     fi
 
     if [ "$SIZE_VALUE" -lt "$MIN_VALUE" ]; then
-      echo "❌ 文件过小：$(human_bytes "$SIZE_VALUE") < $(human_bytes "$MIN_VALUE")，已排除：$URL"
+      echo "   [校验] ❌ 文件过小：$(human_bytes "$SIZE_VALUE") < $(human_bytes "$MIN_VALUE")，已排除：$URL"
       return 1
     fi
 
-    echo "✅ 文件大小达标：$(human_bytes "$SIZE_VALUE") ≥ $(human_bytes "$MIN_VALUE")"
+    echo "   [校验] ✅ 文件大小达标：$(human_bytes "$SIZE_VALUE") ≥ $(human_bytes "$MIN_VALUE")"
     return 0
   }
 
@@ -420,12 +421,13 @@ validate_link() {
     case "$HTTP_CODE" in
       2*|3*)
         REMOTE_SIZE="$(extract_content_length "$HEAD_OUT")"
-        if check_min_file_size "$REMOTE_SIZE"; then
+        check_min_file_size "$REMOTE_SIZE"
+        SIZE_CHECK_EXIT=$?
+        if [ "$SIZE_CHECK_EXIT" -eq 0 ]; then
           echo "✅ 可用链接：$URL"
           return 0
-        else
-          SIZE_CHECK_EXIT=$?
-          [ "$SIZE_CHECK_EXIT" -eq 1 ] && return 1
+        elif [ "$SIZE_CHECK_EXIT" -eq 1 ]; then
+          return 1
         fi
         ;;
     esac
@@ -443,11 +445,15 @@ validate_link() {
   if [ "$CURL_EXIT" -eq 0 ]; then
     REMOTE_SIZE="$(extract_content_range_total "$RANGE_OUT")"
     [ -n "$REMOTE_SIZE" ] || REMOTE_SIZE="$(extract_content_length "$RANGE_OUT")"
-    if check_min_file_size "$REMOTE_SIZE"; then
+    check_min_file_size "$REMOTE_SIZE"
+    SIZE_CHECK_EXIT=$?
+    if [ "$SIZE_CHECK_EXIT" -eq 0 ]; then
       echo "✅ 可用链接：$URL"
       return 0
+    elif [ "$SIZE_CHECK_EXIT" -eq 1 ]; then
+      return 1
     fi
-    return 1
+    # SIZE_CHECK_EXIT=2 时 fall through，保留链接
   fi
 
   case "$CURL_EXIT" in
@@ -474,8 +480,13 @@ check_fetched_links() {
   while IFS= read -r URL; do
     URL="$(normalize_url "$URL")"
     [ -n "$URL" ] || continue
-    if validate_link "$URL"; then
+    validate_link "$URL"
+    VALIDATE_EXIT=$?
+    if [ "$VALIDATE_EXIT" -eq 0 ]; then
       echo "$URL" >> "$VALIDATED_LIST"
+    elif [ "$VALIDATE_EXIT" -eq 2 ]; then
+      echo "$URL" >> "$VALIDATED_LIST"
+      echo "⚠️ 无法确认文件大小，保留到下载时判断：$URL"
     else
       echo "$URL" >> "$INVALID_LIST"
     fi
@@ -506,12 +517,15 @@ while true; do
   reload_env
   fetch_links || true
 
+  LINK_SOURCE=""
   if check_fetched_links; then
     FINAL_BASE_URLS="$(cat /tmp/validated_urls.list)"
+    LINK_SOURCE="抓取链接"
     echo "✅ 使用校验通过的抓取链接"
   elif [ -n "${DOWNLOAD_URLS:-}" ]; then
     force_fetch_next_round
     FINAL_BASE_URLS="$DOWNLOAD_URLS"
+    LINK_SOURCE=".env 配置"
     echo "⚠️ 抓取链接不可用，回退使用 .env 中的 DOWNLOAD_URLS，下一轮将重新抓取"
   else
     force_fetch_next_round
@@ -573,12 +587,40 @@ while true; do
     echo ""
     echo "➤ [$i/$RUN_TIMES] 下载中..."
     printf '   URL: %s\n' "$URL"
+    [ -n "$LINK_SOURCE" ] && printf '   来源: %s\n' "$LINK_SOURCE"
+
+    # 下载前检查文件大小（针对抓取时无法确认大小的链接）
+    SKIP_DOWNLOAD=false
+    if [ -n "$FETCH_MIN_FILE_BYTES" ] && [ "$FETCH_MIN_FILE_BYTES" -gt 0 ]; then
+      echo "   [下载前] 🔍 正在检查文件大小..."
+      set +e
+      HEAD_SIZE="$(curl -IL --connect-timeout 5 --max-time 10 \
+        -A "$USER_AGENT" \
+        -w "\nHTTP_CODE=%{http_code}\n" \
+        "$URL" 2>&1 | grep -i '^content-length:' | tail -n 1 | awk '{print $2}' | tr -d '\r')"
+      set -e
+      if is_uint "$HEAD_SIZE"; then
+        if [ "$HEAD_SIZE" -lt "$FETCH_MIN_FILE_BYTES" ]; then
+          echo "   [下载前] ❌ 文件过小，跳过下载：$(human_bytes "$HEAD_SIZE") < $(human_bytes "$FETCH_MIN_FILE_BYTES")"
+          SKIP_DOWNLOAD=true
+        else
+          echo "   [下载前] ✅ 文件大小达标：$(human_bytes "$HEAD_SIZE") ≥ $(human_bytes "$FETCH_MIN_FILE_BYTES")"
+        fi
+      else
+        echo "   [下载前] ⚠️ 无法确认文件大小，继续下载"
+      fi
+    fi
+
+    if [ "$SKIP_DOWNLOAD" = "true" ]; then
+      continue
+    fi
 
     RATE_OPT=""
     [ -n "$LIMIT_RATE" ] && [ "$LIMIT_RATE" != "0" ] && RATE_OPT="--limit-rate $LIMIT_RATE"
 
     METRICS_FILE="/tmp/curl_metrics_${$}_${i}.txt"
     PROGRESS_OPT="-#"
+    echo "   ⬇️  开始下载..."
     set +e
     curl -L -o /dev/null $PROGRESS_OPT \
       --fail \
@@ -651,6 +693,7 @@ while true; do
 
   sleep "$SLEEP_TIME"
 done
+
 EOF
 
 chmod +x "$MAIN_SCRIPT"
@@ -744,14 +787,16 @@ remote_file_size_ok() {
     fi
   fi
 
-  echo "❌ 无法确认文件大小，未抓取：$URL"
-  return 1
+  echo "⚠️ 无法确认文件大小，保留到下载时判断：$URL"
+  return 2
 }
 
 append_if_large_enough() {
   URL="$1"
   [ -n "$URL" ] || return 0
-  if remote_file_size_ok "$URL"; then
+  remote_file_size_ok "$URL"
+  RESULT=$?
+  if [ "$RESULT" -eq 0 ] || [ "$RESULT" -eq 2 ]; then
     echo "$URL" >> "$OUTPUT_FILE"
   fi
 }

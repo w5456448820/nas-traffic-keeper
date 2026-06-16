@@ -465,6 +465,29 @@ while true; do
     echo "➤ [$i/$RUN_TIMES] 下载中..."
     printf '   URL: %s\n' "$URL"
 
+    # 下载前检查文件大小（针对抓取时无法确认大小的链接）
+    SKIP_DOWNLOAD=false
+    if [ -n "$FETCH_MIN_FILE_BYTES" ] && [ "$FETCH_MIN_FILE_BYTES" -gt 0 ]; then
+      set +e
+      HEAD_SIZE="$(curl -IL --connect-timeout 5 --max-time 10 \
+        -A "$USER_AGENT" \
+        -w "\nHTTP_CODE=%{http_code}\n" \
+        "$URL" 2>&1 | grep -i '^content-length:' | tail -n 1 | awk '{print $2}' | tr -d '\r')"
+      set -e
+      if is_uint "$HEAD_SIZE"; then
+        if [ "$HEAD_SIZE" -lt "$FETCH_MIN_FILE_BYTES" ]; then
+          echo "❌ 文件过小，跳过下载：$(human_bytes "$HEAD_SIZE") < $(human_bytes "$FETCH_MIN_FILE_BYTES")"
+          SKIP_DOWNLOAD=true
+        else
+          echo "✅ 文件大小达标：$(human_bytes "$HEAD_SIZE") ≥ $(human_bytes "$FETCH_MIN_FILE_BYTES")"
+        fi
+      fi
+    fi
+
+    if [ "$SKIP_DOWNLOAD" = "true" ]; then
+      continue
+    fi
+
     RATE_OPT=""
     [ -n "$LIMIT_RATE" ] && [ "$LIMIT_RATE" != "0" ] && RATE_OPT="--limit-rate $LIMIT_RATE"
 

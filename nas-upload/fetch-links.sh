@@ -111,56 +111,77 @@ echo "🔍 正在从 GitHub API 抓取 Release 资源..."
 
 GITHUB_API="https://api.github.com"
 
+REPOS_LIST="/tmp/tk_repos_$$.txt"
 echo "curl/curl
 jqlang/jq
-nodejs/node" | while IFS= read -r repo; do
+nodejs/node" > "$REPOS_LIST"
+
+while IFS= read -r repo; do
   [ -z "$repo" ] && continue
 
   RESP=$(curl -sL --connect-timeout 10 --max-time 20 --retry 2 "$GITHUB_API/repos/$repo/releases/latest" || true)
   echo "$RESP" | grep -q "browser_download_url" || continue
 
+  URLS_LIST="/tmp/tk_urls_$$.txt"
   echo "$RESP" | \
-  grep "browser_download_url" | \
-  grep -E "\.(tar\.gz|zip|tar\.xz|pkg|dmg|exe)" | \
-  cut -d '"' -f 4 | \
+    grep "browser_download_url" | \
+    grep -E "\.(tar\.gz|zip|tar\.xz|pkg|dmg|exe)" | \
+    cut -d '"' -f 4 > "$URLS_LIST"
+
   while IFS= read -r URL; do
     append_if_large_enough "$URL"
-  done
-done
+  done < "$URLS_LIST"
+
+  rm -f "$URLS_LIST"
+done < "$REPOS_LIST"
+rm -f "$REPOS_LIST"
 
 echo "🔍 正在从国内镜像站抓取资源..."
 
+MIRRORS_LIST="/tmp/tk_mirrors_$$.txt"
 echo "https://mirrors.tuna.tsinghua.edu.cn/apache/httpd/
-https://mirrors.aliyun.com/ubuntu-releases/22.04/" | while IFS= read -r base_url; do
+https://mirrors.aliyun.com/ubuntu-releases/22.04/" > "$MIRRORS_LIST"
+
+while IFS= read -r base_url; do
   [ -z "$base_url" ] && continue
+
+  # 去掉末尾斜杠
+  base_url="$(echo "$base_url" | sed 's|/*$||')"
 
   content=$(curl -sL --connect-timeout 10 --max-time 20 --max-redirs 2 "$base_url" || true)
   [ -n "$content" ] || continue
 
   ORIGIN="$(echo "$base_url" | sed -E 's#(https?://[^/]+).*#\1#')"
-  BASE_PATH="$(echo "$base_url" | sed -E 's#(https?://[^/]+/.*)/?$#\1/#')"
+  BASE_PATH="$base_url/"
 
+  FILES_LIST="/tmp/tk_files_$$.txt"
   echo "$content" | grep -oE 'href="[^"]+\.(iso|tar\.gz|zip|xz|exe|pkg)"' | \
-  sed 's/href="//;s/"//' | \
+    sed 's/href="//;s/"//' > "$FILES_LIST"
+
   while IFS= read -r file; do
     file="$(echo "$file" | sed 's|^\./||')"
 
     case "$file" in
       http*) FULL_URL="$file" ;;
       //*)  FULL_URL="https:$file" ;;
-      /*)   FULL_URL="$ORIGIN$file" ;;
-      ../*) FULL_URL="$BASE_PATH$file" ;;
-      *)    FULL_URL="$base_url$file" ;;
+      /*)   FULL_URL="${ORIGIN}${file}" ;;
+      ../*) FULL_URL="${BASE_PATH}${file}" ;;
+      *)    FULL_URL="${base_url}/${file}" ;;
     esac
 
+    # 清理路径中的 ./ 和多余斜杠
     FULL_URL="$(echo "$FULL_URL" | sed \
       -e 's|/\./|/|g' \
-      -e 's|https:/|https://|' \
-      -e 's|http:/|http://|')"
+      -e 's|://|://|g' \
+      -e 's|/\+|/|g' \
+      -e 's|(https?:)/|\1://|')"
 
     append_if_large_enough "$FULL_URL"
-  done
-done
+  done < "$FILES_LIST"
+
+  rm -f "$FILES_LIST"
+done < "$MIRRORS_LIST"
+rm -f "$MIRRORS_LIST"
 
 sed -i '/^$/d' "$OUTPUT_FILE"
 grep -E '^https?://' "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp" || true

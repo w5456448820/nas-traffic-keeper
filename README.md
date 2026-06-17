@@ -100,7 +100,7 @@ traffic-keeper/
 | `RETRY_DELAY` | `5` | 重试间隔秒数 |
 | `FETCH_INTERVAL` | `21600` (6小时) | 链接抓取间隔秒数 |
 | `FETCH_MIN_FILE_BYTES` | `1073741824` (1 GiB) | 抓取链接的最小文件大小 |
-| `USER_AGENT` | `traffic-keeper/2.6.16 curl/8.0` | User-Agent |
+| `USER_AGENT` | `traffic-keeper/2.7.1 curl/8.0` | User-Agent |
 | `MAX_DAILY_BYTES` | `214748364800` (200 GB) | 单日最大下载量 |
 | `DOWNLOAD_URLS` | (多个ISO链接) | 备用下载链接列表 |
 
@@ -324,4 +324,6 @@ rm -f /vol2/1000/Docker/traffic-keeper/links/.last-fetch
 
 | 版本 | 更新内容 |
 |------|----------|
+| 2.7.1 | 新增 Web 管理界面（端口 8080），支持通过 Web 界面配置所有参数、实时查看终端日志；修复安装脚本在目标目录运行时的 cp 自复制问题；修复 apk 安装失败导致容器死循环重启的问题（三镜像源容错+超时机制）；修复 .env 多行格式导致 docker compose 解析失败的问题 |
+| 2.7.0 | 重构项目结构，新增 entrypoint.sh、webserver.py、docker-compose.yml；支持 Docker 容器化部署；新增链接抓取脚本 fetch-links.sh |
 | 2.6.16 | 修复 curl 请求跟随重定向(-L)，解决阿里云镜像 302 下载失败；增加更多国内镜像源；修复 docker-compose.yml YAML 层级错误；使用 $RANDOM 替代 od+mod 方案提高随机数质量；下载使用 -sS 替代 -# 避免进度条污染日志 |

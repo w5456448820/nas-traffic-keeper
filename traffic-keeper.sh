@@ -8,14 +8,48 @@ set -e
 
 echo "🐳 Traffic Keeper 容器启动中..."
 
-# ---------- Alpine 软件源修复（确保 curl 可用） ----------
+# ---------- Alpine 软件源修复（多镜像源容错，不阻塞主流程） ----------
 ALPINE_VER="$(cut -d. -f1,2 /etc/alpine-release 2>/dev/null || echo 3.20)"
-rm -f /etc/apk/repositories
-echo "https://mirrors.aliyun.com/alpine/v${ALPINE_VER}/main" > /etc/apk/repositories
-echo "https://mirrors.aliyun.com/alpine/v${ALPINE_VER}/community" >> /etc/apk/repositories
 
-apk update >/dev/null 2>&1
-apk add --no-cache curl coreutils >/dev/null 2>&1
+# 第一步：curl 已经存在则跳过安装
+if command -v curl >/dev/null 2>&1; then
+    echo "✅ curl 已就绪，跳过软件包安装"
+else
+    echo "🔧 curl 未安装，正在尝试安装（最多尝试 3 个镜像源）..."
+
+    APK_OK=false
+    for MIRROR in \
+        "https://mirrors.aliyun.com" \
+        "https://mirrors.tuna.tsinghua.edu.cn" \
+        "http://dl-cdn.alpinelinux.org"; do
+        echo "   尝试镜像: ${MIRROR}"
+        rm -f /etc/apk/repositories
+        {
+            echo "${MIRROR}/alpine/v${ALPINE_VER}/main"
+            echo "${MIRROR}/alpine/v${ALPINE_VER}/community"
+        } > /etc/apk/repositories
+
+        # 短暂超时 + 非致命：即使 apk 失败也不让脚本整体退出
+        if (timeout 60 apk update >/tmp/apk_update.log 2>&1) && \
+           (timeout 120 apk add --no-cache curl coreutils >/tmp/apk_add.log 2>&1); then
+            echo "   ✅ ${MIRROR} 安装成功"
+            APK_OK=true
+            break
+        fi
+        echo "   ⚠️  ${MIRROR} 失败，尝试下一个..."
+    done
+
+    if [ "$APK_OK" = false ]; then
+        echo "   ⚠️  所有镜像源均不可达，将继续运行（如下载失败请检查 NAS 网络）"
+    fi
+
+    # 再次检查 curl（python:3.12-alpine 基础镜像在某些 tag 下自带 curl）
+    if command -v curl >/dev/null 2>&1; then
+        echo "   ✅ curl 可用"
+    else
+        echo "   ⚠️  curl 仍然不可用，下载将跳过"
+    fi
+fi
 
 DATA_DIR="/app/data"
 DISPLAY_DIR="/app/流量统计"

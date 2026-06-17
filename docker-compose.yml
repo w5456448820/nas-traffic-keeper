@@ -1,0 +1,29 @@
+services:
+  traffic-keeper:
+    image: python:3.12-alpine
+    container_name: traffic-keeper
+    restart: always
+    working_dir: /app
+    volumes:
+      - ./traffic-keeper.sh:/app/traffic-keeper.sh:ro
+      - ./fetch-links.sh:/app/fetch-links.sh:ro
+      - ./webserver.py:/app/webserver.py:ro
+      - ./entrypoint.sh:/app/entrypoint.sh:ro
+      - ./.env:/app/.env
+      - ./data:/app/data
+      - ./流量统计:/app/流量统计
+      - links:/app/links
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "8080:8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: 2m
+        max-file: 3
+    tmpfs:
+      - /tmp
+    command: ["/bin/sh", "/app/entrypoint.sh"]
+
+volumes:
+  links:

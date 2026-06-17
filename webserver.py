@@ -93,9 +93,22 @@ def write_env(config_dict):
                 new_lines.append(f"{key}={val}")
 
     tmp = ENV_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write("\n".join(new_lines) + "\n")
-    os.replace(tmp, ENV_FILE)
+    content = "\n".join(new_lines) + "\n"
+    
+    # 重试机制：最多重试 3 次，每次间隔 0.5 秒
+    for attempt in range(3):
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp, ENV_FILE)
+            return True
+        except OSError as e:
+            if e.errno == 16:  # Resource busy
+                if attempt < 2:
+                    time.sleep(0.5)
+                    continue
+            raise
+    return False
 
 def get_stats():
     """读取今日统计数据"""
@@ -388,8 +401,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(length).decode("utf-8")
                 data = json.loads(body)
-                write_env(data)
-                self._send_json({"success": True})
+                success = write_env(data)
+                if success:
+                    self._send_json({"success": True})
+                else:
+                    self._send_json({"success": False, "error": "配置文件保存失败，请稍后重试"}, 500)
             except Exception as e:
                 self._send_json({"success": False, "error": str(e)}, 400)
         else:

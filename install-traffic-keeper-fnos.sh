@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =========================================================
 #  Traffic Keeper - FnOS / 飞牛 NAS 一键安装脚本
-#  Version : 2.7.1
+#  Version : 2.7.3
 #  功能：
 #    - 自动部署所有脚本（含权限处理）
 #    - 自动生成 .env（如缺失）
@@ -150,7 +150,7 @@ FETCH_INTERVAL=21600
 FETCH_MIN_FILE_BYTES=1073741824
 
 # User-Agent
-USER_AGENT='traffic-keeper/2.7.1 curl/8.0'
+USER_AGENT='traffic-keeper/2.7.3 curl/8.0'
 
 # 单日最大下载量（字节）：200 GB
 MAX_DAILY_BYTES=214748364800

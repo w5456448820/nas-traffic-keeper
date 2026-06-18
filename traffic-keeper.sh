@@ -72,13 +72,28 @@ is_uint() {
 human_bytes() {
     VALUE="${1:-0}"
     is_uint "$VALUE" || VALUE=0
-    numfmt --to=iec-i --suffix=B "$VALUE" 2>/dev/null || echo "${VALUE}B"
+    # 使用 GB/GiB 友好显示（SI 单位，1000 进制）
+    for unit in TB GB MB KB B; do
+        div=1
+        case "$unit" in
+            TB) div=1000000000000 ;;
+            GB) div=1000000000 ;;
+            MB) div=1000000 ;;
+            KB) div=1000 ;;
+            B)  div=1 ;;
+        esac
+        if [ "$VALUE" -ge "$div" ]; then
+            echo "$(awk "BEGIN {printf \"%.2f\", $VALUE/$div}") $unit"
+            return
+        fi
+    done
+    echo "0 B"
 }
 
 human_seconds() {
     VALUE="${1:-0}"
     is_uint "$VALUE" || VALUE=0
-    printf "%02dmin %02ds" "$((VALUE / 60))" "$((VALUE % 60))"
+    printf "%02d:%02d:%02d" "$((VALUE / 3600))" "$(((VALUE % 3600) / 60))" "$((VALUE % 60))"
 }
 
 next_wake_time() {
@@ -586,11 +601,13 @@ while true; do
         fi
     done
 
-    # 本轮总量低于阈值时，强制固定休眠
+    # 本轮总量低于阈值时，跳过休眠
     if [ "$ROUND_MIN_BYTES" -gt 0 ] && [ "$ROUND_TOTAL_BYTES" -lt "$ROUND_MIN_BYTES" ]; then
-        ROUND_SMALL_DOWNLOAD=true
         echo ""
-        echo "ℹ️  本轮下载总量 $(human_bytes "$ROUND_TOTAL_BYTES") < 阈值 $(human_bytes "$ROUND_MIN_BYTES")，固定休眠"
+        echo "ℹ️  本轮下载总量 $(human_bytes "$ROUND_TOTAL_BYTES") < 阈值 $(human_bytes "$ROUND_MIN_BYTES")，跳过休眠"
+        echo "ℹ️  立即开始下一轮..."
+        echo ""
+        continue
     fi
 
     echo ""

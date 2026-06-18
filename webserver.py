@@ -92,23 +92,24 @@ def write_env(config_dict):
             else:
                 new_lines.append(f"{key}={val}")
 
-    tmp = ENV_FILE + ".tmp"
     content = "\n".join(new_lines) + "\n"
+    tmp = ENV_FILE + ".tmp"
     
-    # 重试机制：最多重试 3 次，每次间隔 0.5 秒
-    for attempt in range(3):
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(content)
-            os.replace(tmp, ENV_FILE)
-            return True
-        except OSError as e:
-            if e.errno == 16:  # Resource busy
-                if attempt < 2:
-                    time.sleep(0.5)
-                    continue
-            raise
-    return False
+    # 直接写入 .env，放弃原子替换（避免 Docker volume / NFS 文件锁冲突）
+    try:
+        with open(ENV_FILE, "w", encoding="utf-8") as f:
+            f.write(content)
+        return True
+    except OSError as e:
+        if e.errno == 16:  # Resource busy
+            # 降级：写入临时文件，由下次 reload_env() 自动加载
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.write(content)
+                return True
+            except OSError:
+                pass
+        return False
 
 def get_stats():
     """读取今日统计数据"""

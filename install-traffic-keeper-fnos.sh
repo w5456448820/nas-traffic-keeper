@@ -96,7 +96,7 @@ if [ ! -f "$ENV_FILE" ]; then
     need_write_env=true
 else
     # 检查关键配置项是否存在
-    for key in LIMIT_RATE SLEEP_MAX SLEEP_MIN DOWNLOAD_URLS WEB_PORT; do
+    for key in LIMIT_RATE SLEEP_MAX SLEEP_MIN ROUND_MIN_BYTES DOWNLOAD_URLS WEB_PORT; do
         if ! grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
             echo "   .env 中缺少关键字段 '$key'，将使用默认配置补齐"
             need_write_env=true
@@ -127,6 +127,9 @@ DYNAMIC_SLEEP=true
 
 # 启用动态休眠所需的单次最小下载量（字节）
 DYNAMIC_SLEEP_MIN_BYTES=1073741824
+
+# 本轮下载总量低于此值时跳过动态休眠（字节），0 表示不检查
+ROUND_MIN_BYTES=0
 
 # 每轮最多执行下载次数
 RUN_TIMES_MAX=3

@@ -188,6 +188,74 @@ def get_stats():
         data["_DURATION_HUMAN"] = f"{dur//60:02d}min {dur%60:02d}s"
     return data
 
+def get_history():
+    """读取所有历史统计数据，按日期倒序"""
+    import datetime
+    data_dir = "/app/data"
+    stats_dir = "/app/流量统计"
+    records = []
+
+    # 1) 读取 data/stats_data_*.log
+    try:
+        if os.path.isdir(data_dir):
+            for fname in os.listdir(data_dir):
+                if fname.startswith("stats_data_") and fname.endswith(".log"):
+                    fpath = os.path.join(data_dir, fname)
+                    try:
+                        with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                            rec = {"source": "data", "filename": fname}
+                            for line in f:
+                                line = line.strip()
+                                if "=" in line and not line.startswith("#"):
+                                    k, v = line.split("=", 1)
+                                    rec[k.strip()] = v.strip()
+                            # 提取日期
+                            date_str = fname.replace("stats_data_", "").replace(".log", "")
+                            rec["date"] = date_str
+                            records.append(rec)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # 2) 回退到 流量统计/stats_show_*.log
+    try:
+        if os.path.isdir(stats_dir):
+            for fname in os.listdir(stats_dir):
+                if fname.startswith("stats_show_") and fname.endswith(".log"):
+                    fpath = os.path.join(stats_dir, fname)
+                    try:
+                        with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                            content = f.read()
+                            rec = {"source": "stats_show", "filename": fname}
+                            # 解析日期
+                            m = re.search(r"(\d{4}-\d{2}-\d{2})", fname)
+                            if m:
+                                rec["date"] = m.group(1)
+                            else:
+                                rec["date"] = fname
+                            m = re.search(r"生成日期\s*[:：]\s*(\S+)", content)
+                            if m: rec["DATE"] = m.group(1)
+                            m = re.search(r"生成时间\s*[:：]\s*(\S+)", content)
+                            if m: rec["GENERATE_TIME"] = m.group(1)
+                            m = re.search(r"下载次数\s*[:：]\s*(\d+)", content)
+                            if m: rec["COUNT"] = m.group(1)
+                            m = re.search(r"下载流量\s*[:：]\s*(\S+)", content)
+                            if m: rec["_SIZE_HUMAN"] = m.group(1)
+                            m = re.search(r"累计耗时\s*[:：]\s*(\S+)", content)
+                            if m: rec["_DURATION_HUMAN"] = m.group(1)
+                            records.append(rec)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # 按日期倒序
+    def get_date(rec):
+        return rec.get("date", "")
+    records.sort(key=get_date, reverse=True)
+    return records[:100]  # 最多返回100条
+
 def get_log_tail(limit=1000):
     if not os.path.exists(LOG_FILE):
         return []
@@ -245,6 +313,11 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 .toast.success{background:#28a745}
 .toast.error{background:#dc3545}
 @media(max-width:768px){.config-grid{grid-template-columns:1fr}}
+.history-table{width:100%;border-collapse:collapse;font-size:13px}
+.history-table th,.history-table td{padding:10px 12px;text-align:left;border-bottom:1px solid #e9ecef}
+.history-table th{background:#f8f9fa;font-weight:600;color:#333}
+.history-table tr:hover{background:#f8f9fa}
+.history-empty{text-align:center;color:#888;padding:40px}
 </style></head><body>
 <div class="container">
 <div class="header"><h1>🚀 Traffic Keeper 管理界面</h1>
@@ -260,7 +333,8 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 <div class="panel"><div class="panel-body">
 <div class="tabs">
 <button class="tab active" data-tab="config">⚙️ 配置管理</button>
-<button class="tab" data-tab="logs">📜 终端日志</button></div>
+<button class="tab" data-tab="logs">📜 终端日志</button>
+<button class="tab" data-tab="history">📊 历史数据</button></div>
 <div class="tab-content active" id="tab-config">
 <form id="config-form" class="config-grid"></form>
 <div style="margin-top:20px;text-align:right">
@@ -273,6 +347,11 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 <button type="button" class="btn btn-secondary" onclick="clearLogs()">🗑️ 清空显示</button>
 <span style="font-size:12px;color:#888">实时显示终端输出</span></div>
 <div class="log-container" id="log-container"></div></div>
+<div class="tab-content" id="tab-history">
+<div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+<button type="button" class="btn btn-secondary" onclick="loadHistory()">🔄 刷新</button>
+<span style="font-size:12px;color:#888">显示最近100条历史记录</span></div>
+<div id="history-table" style="overflow-x:auto"></div></div>
 </div></div></div>
 <div class="toast" id="toast"></div>
 <script>
@@ -302,6 +381,7 @@ let logContainer,autoScroll=true,eventSource=null;
 function toggleAutoScroll(){autoScroll=!autoScroll;document.getElementById('scroll-btn').textContent=autoScroll?'🔽 自动滚动':'⏸ 已暂停滚动'}
 function startLogStream(){if(eventSource)return;logContainer=document.getElementById('log-container');fetch('/api/logs').then(r=>r.json()).then(d=>{logContainer.textContent=d.lines.join('\n');if(autoScroll)logContainer.scrollTop=logContainer.scrollHeight});try{eventSource=new EventSource('/api/logs/stream');eventSource.onmessage=(e)=>{if(!logContainer.textContent)logContainer.textContent=e.data;else logContainer.textContent+='\n'+e.data;if(autoScroll)logContainer.scrollTop=logContainer.scrollHeight};eventSource.onerror=()=>{setTimeout(()=>{if(eventSource){eventSource.close();eventSource=null}},2000)}}catch(e){console.error(e)}}
 function clearLogs(){document.getElementById('log-container').textContent=''}
+function loadHistory(){fetch('/api/history').then(r=>r.json()).then(d=>{const box=document.getElementById('history-table');if(!d.records||d.records.length===0){box.innerHTML='<div class="history-empty">暂无历史数据</div>';return}let html='<table class="history-table"><thead><tr><th>日期</th><th>生成时间</th><th>下载次数</th><th>下载流量</th><th>累计耗时</th></tr></thead><tbody>';d.records.forEach(r=>{html+='<tr>';html+='<td>'+escapeHtml(r.date||'-')+'</td>';html+='<td>'+escapeHtml(r.GENERATE_TIME||'-')+'</td>';html+='<td>'+escapeHtml(r.COUNT||'0')+'</td>';html+='<td>'+escapeHtml(r._SIZE_HUMAN||'-')+'</td>';html+='<td>'+escapeHtml(r._DURATION_HUMAN||'-')+'</td>';html+='</tr>'});html+='</tbody></table>';box.innerHTML=html}).catch(e=>{document.getElementById('history-table').innerHTML='<div class="history-empty">加载失败: '+escapeHtml(e.message)+'</div>'})}
 function updateTime(){document.getElementById('server-time').textContent=new Date().toLocaleString('zh-CN')}
 loadConfig();updateStats();updateTime();setInterval(updateStats,10000);setInterval(updateTime,1000);
 </script></body></html>
@@ -398,6 +478,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json(get_stats())
             except Exception as e:
                 self._send_json({}, 500)
+        elif path == "/api/history":
+            try:
+                self._send_json({"records": get_history()})
+            except Exception as e:
+                self._send_json({"records": [], "error": str(e)}, 500)
         elif path == "/api/logs":
             try:
                 self._send_json({"lines": get_log_tail(2000)})

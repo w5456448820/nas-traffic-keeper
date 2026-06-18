@@ -104,6 +104,7 @@ apply_defaults() {
     is_uint "${SLEEP_MIN:-}" || SLEEP_MIN=60
     is_uint "${SLEEP_MAX:-}" || SLEEP_MAX=900
     is_uint "${DYNAMIC_SLEEP_MIN_BYTES:-}" || DYNAMIC_SLEEP_MIN_BYTES=1073741824
+    is_uint "${ROUND_MIN_BYTES:-}" || ROUND_MIN_BYTES=0
     is_uint "${RUN_TIMES_MAX:-}" || RUN_TIMES_MAX=3
     is_uint "${CONNECT_TIMEOUT:-}" || CONNECT_TIMEOUT=15
     is_uint "${MAX_TIME:-}" || MAX_TIME=3000
@@ -116,6 +117,7 @@ apply_defaults() {
     [ "$SLEEP_MIN" -lt 1 ] && SLEEP_MIN=60
     [ "$SLEEP_MAX" -lt 1 ] && SLEEP_MAX=900
     [ "$DYNAMIC_SLEEP_MIN_BYTES" -lt 0 ] && DYNAMIC_SLEEP_MIN_BYTES=1073741824
+    [ "$ROUND_MIN_BYTES" -lt 0 ] && ROUND_MIN_BYTES=0
     [ "$RUN_TIMES_MAX" -lt 1 ] && RUN_TIMES_MAX=1
     [ "$CONNECT_TIMEOUT" -lt 1 ] && CONNECT_TIMEOUT=15
     [ "$MAX_TIME" -lt 1 ] && MAX_TIME=3000
@@ -477,6 +479,7 @@ while true; do
 
     RUN_TIMES="$(rand_n "$RUN_TIMES_MAX")"
     ROUND_SMALL_DOWNLOAD=false
+    ROUND_TOTAL_BYTES=0
     echo ""
     echo "🚀 开始新一轮下载任务（共 $RUN_TIMES 次）"
 
@@ -575,12 +578,20 @@ while true; do
         fi
 
         [ "$SIZE" -gt 0 ] && update_stats "$SIZE" "$TIME"
+        ROUND_TOTAL_BYTES=$((ROUND_TOTAL_BYTES + SIZE))
 
         if ! check_daily_limit; then
             echo "⚠️  单日流量已达到或超过上限，本轮提前结束"
             break
         fi
     done
+
+    # 本轮总量低于阈值时，强制固定休眠
+    if [ "$ROUND_MIN_BYTES" -gt 0 ] && [ "$ROUND_TOTAL_BYTES" -lt "$ROUND_MIN_BYTES" ]; then
+        ROUND_SMALL_DOWNLOAD=true
+        echo ""
+        echo "ℹ️  本轮下载总量 $(human_bytes "$ROUND_TOTAL_BYTES") < 阈值 $(human_bytes "$ROUND_MIN_BYTES")，固定休眠"
+    fi
 
     echo ""
     [ -f "$(show_file)" ] || generate_show_stats
@@ -593,7 +604,7 @@ while true; do
     if [ "$DYNAMIC_SLEEP" = "false" ]; then
         echo "😴 本轮结束，固定休眠 $(human_seconds "$SLEEP_TIME")（动态休眠已关闭）..."
     elif [ "$ROUND_SMALL_DOWNLOAD" = "true" ]; then
-        echo "😴 本轮结束，固定休眠 $(human_seconds "$SLEEP_TIME")（单次下载量小于阈值）..."
+        echo "😴 本轮结束，固定休眠 $(human_seconds "$SLEEP_TIME")（动态休眠跳过）..."
     else
         echo "😴 本轮结束，随机休眠 $(human_seconds "$SLEEP_TIME")..."
     fi

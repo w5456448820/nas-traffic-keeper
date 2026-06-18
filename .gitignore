@@ -3,6 +3,10 @@ data/
 links/
 流量统计/
 
+# Python 缓存
+__pycache__/
+*.pyc
+
 # 本地配置与临时文件
 .env
 *.log

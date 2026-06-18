@@ -43,7 +43,7 @@ done
 # 但容器内会通过 volume 挂载，这里给个温和的 chmod 以避免挂载权限问题
 [ -f "$PROJECT_DIR/webserver.py" ] && chmod +x "$PROJECT_DIR/webserver.py" 2>/dev/null || true
 
-# ============ 2. 检查必需文件是否存在 ============
+# ============ 2. 检查必需文件，缺失则从 GitHub 自动下载 ============
 echo ""
 echo "✅ 检查必需文件..."
 MISSING=""
@@ -54,10 +54,35 @@ for f in traffic-keeper.sh fetch-links.sh webserver.py entrypoint.sh docker-comp
 done
 if [ -n "$MISSING" ]; then
     echo "⚠️  检测到缺失文件：$MISSING"
-    echo "   请从 GitHub/Gitee 重新克隆或补充上述文件后再运行。"
-    exit 1
+    echo "   正在从 GitHub 自动下载缺失文件..."
+    echo "   （如无法访问 GitHub，请手动从 https://github.com/w5456448820/nas-traffic-keeper 下载）"
+    TMP_DIR="$(mktemp -d 2>/dev/null || echo "/tmp/tk-auto-$(date +%s)")"
+    mkdir -p "$TMP_DIR"
+    BASE_URL="https://raw.githubusercontent.com/w5456448820/nas-traffic-keeper/main"
+    DL_OK=true
+    for f in traffic-keeper.sh fetch-links.sh webserver.py entrypoint.sh docker-compose.yml README.md; do
+        if [ ! -f "$PROJECT_DIR/$f" ]; then
+            echo "   ↓ 正在下载 $f ..."
+            if curl -fsSL --connect-timeout 10 --max-time 30 -o "$TMP_DIR/$f" "$BASE_URL/$f" 2>/dev/null; then
+                cp "$TMP_DIR/$f" "$PROJECT_DIR/$f"
+                [ "${f##*.}" = "sh" ] && chmod +x "$PROJECT_DIR/$f"
+            else
+                echo "   ❌ 下载 $f 失败（请检查网络或手动克隆）"
+                DL_OK=false
+            fi
+        fi
+    done
+    rm -rf "$TMP_DIR"
+    if [ "$DL_OK" = false ]; then
+        echo ""
+        echo "⚠️  部分文件下载失败。请手动克隆仓库："
+        echo "   cd $PROJECT_DIR && git clone https://github.com/w5456448820/nas-traffic-keeper.git ."
+        exit 1
+    fi
+    echo "   自动下载完成 ✓"
+else
+    echo "   全部文件就绪 ✓"
 fi
-echo "   全部文件就绪 ✓"
 
 # ============ 3. 生成 .env（如缺失，或缺少关键字段时补齐）===========
 echo ""

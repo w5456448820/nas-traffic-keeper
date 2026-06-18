@@ -118,32 +118,73 @@ def get_stats():
             "SIZE_BYTES": "0", "TIME_SECONDS": "0"}
     stats_dir = "/app/流量统计"
     data_dir = "/app/data"
+    # 1) 优先读取 data/stats_data_*.log，按文件名日期倒序，取最新
+    found = False
     try:
-        for fname in os.listdir(data_dir) if os.path.isdir(data_dir) else []:
-            if fname.startswith("stats_data_") and fname.endswith(".log"):
-                fpath = os.path.join(data_dir, fname)
-                try:
-                    with open(fpath, "r", encoding="utf-8", errors="replace") as f:
-                        for line in f:
-                            line = line.strip()
-                            if "=" in line and not line.startswith("#"):
-                                k, v = line.split("=", 1)
-                                data[k.strip()] = v.strip()
-                except Exception:
-                    pass
-                break
+        candidates = []
+        if os.path.isdir(data_dir):
+            for fname in os.listdir(data_dir):
+                if fname.startswith("stats_data_") and fname.endswith(".log"):
+                    candidates.append(fname)
+        candidates.sort(reverse=True)
+        if candidates:
+            fpath = os.path.join(data_dir, candidates[0])
+            try:
+                with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        line = line.strip()
+                        if "=" in line and not line.startswith("#"):
+                            k, v = line.split("=", 1)
+                            data[k.strip()] = v.strip()
+                found = True
+            except Exception:
+                pass
     except Exception:
         pass
-    # 友好展示
+
+    # 2) 如果 data/ 下没有读取到，则回退到 流量统计/stats_show_*.log
+    if not found:
+        try:
+            candidates = []
+            if os.path.isdir(stats_dir):
+                for fname in os.listdir(stats_dir):
+                    if fname.startswith("stats_show_") and fname.endswith(".log"):
+                        candidates.append(fname)
+            candidates.sort(reverse=True)
+            if candidates:
+                fpath = os.path.join(stats_dir, candidates[0])
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                        # 解析 stats_show 文件中的 key: value 格式
+                        import re
+                        m = re.search(r"生成日期\s*[:：]\s*(\S+)", content)
+                        if m: data["DATE"] = m.group(1)
+                        m = re.search(r"生成时间\s*[:：]\s*(\S+)", content)
+                        if m: data["GENERATE_TIME"] = m.group(1)
+                        m = re.search(r"下载次数\s*[:：]\s*(\d+)", content)
+                        if m: data["COUNT"] = m.group(1)
+                        m = re.search(r"下载流量\s*[:：]\s*(\d+(?:\.\d+)?\s*\S+)", content)
+                        if m: data["_SIZE_HUMAN"] = m.group(1)
+                        m = re.search(r"累计耗时\s*[:：]\s*(\S+)", content)
+                        if m: data["_DURATION_HUMAN"] = m.group(1)
+                        found = True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    # 友好展示（仅当尚未解析出人类可读值时）
     size_bytes = int(data.get("SIZE_BYTES", "0") or "0")
-    for unit, div in [("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)]:
-        if size_bytes >= div:
-            data["_SIZE_HUMAN"] = f"{size_bytes/div:.2f} {unit}"
-            break
-    else:
-        data["_SIZE_HUMAN"] = f"{size_bytes} B"
-    dur = int(data.get("TIME_SECONDS", "0") or "0")
-    data["_DURATION_HUMAN"] = f"{dur//60:02d}min {dur%60:02d}s"
+    if "_SIZE_HUMAN" not in data:
+        for unit, div in [("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)]:
+            if size_bytes >= div:
+                data["_SIZE_HUMAN"] = f"{size_bytes/div:.2f} {unit}"
+                break
+        else:
+            data["_SIZE_HUMAN"] = f"{size_bytes} B"
+    if "_DURATION_HUMAN" not in data:
+        dur = int(data.get("TIME_SECONDS", "0") or "0")
+        data["_DURATION_HUMAN"] = f"{dur//60:02d}min {dur%60:02d}s"
     return data
 
 def get_log_tail(limit=1000):

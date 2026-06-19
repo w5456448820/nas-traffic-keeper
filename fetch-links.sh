@@ -1,18 +1,20 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 独立链接抓取脚本
-#  Version : 2.7.3
-#  输出：./links/fetched-links.txt
+#  Version : 2.7.3-fixed
+#  修复：和 traffic-keeper.sh 统一 GB→Bytes 转换规则
+#  配置说明：.env 中 FETCH_MIN_FILE_BYTES 填写 GB 值，0 表示不限制
 # =========================================================
 set -e
 
 BASE_DIR="$(dirname "$0")"
 OUTPUT_FILE="$BASE_DIR/links/fetched-links.txt"
-FETCH_MIN_FILE_BYTES=${FETCH_MIN_FILE_BYTES:-1073741824}
+FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1}"  # 默认1GB，和主脚本对齐
 
 mkdir -p "$BASE_DIR/links"
 > "$OUTPUT_FILE"
 
+# ==================== 单位转换工具函数（和主脚本完全一致） ====================
 is_uint() {
     case "$1" in
         ''|*[!0-9]*) return 1 ;;
@@ -20,18 +22,42 @@ is_uint() {
     esac
 }
 
+# GB 转字节（1GB = 1024^3 Bytes）
+gb_to_bytes() {
+    local val="${1:-0}"
+    is_uint "$val" || val=0
+    [ "$val" -le 0 ] && echo 0 && return
+    echo $((val * 1024 * 1024 * 1024))
+}
+
+# 1024进制字节转人类可读格式（和主脚本日志完全统一）
 human_bytes() {
     VALUE="${1:-0}"
     is_uint "$VALUE" || VALUE=0
-    numfmt --to=iec-i --suffix=B "$VALUE" 2>/dev/null || echo "${VALUE}B"
+    for unit in TiB GiB MiB KiB B; do
+        div=1
+        case "$unit" in
+            TiB) div=1099511627776 ;;
+            GiB) div=1073741824 ;;
+            MiB) div=1048576 ;;
+            KiB) div=1024 ;;
+            B)   div=1 ;;
+        esac
+        if [ "$VALUE" -ge "$div" ]; then
+            echo "$(awk "BEGIN {printf \"%.2f\", $VALUE/$div}") $unit"
+            return
+        fi
+    done
+    echo "0 B"
 }
+# =============================================================================
 
 # 尝试获取文件大小，返回：0=达标，1=过小，2=无法确认
 remote_file_size_check() {
     URL="$1"
-    MIN_VALUE="$FETCH_MIN_FILE_BYTES"
-    is_uint "$MIN_VALUE" || MIN_VALUE=1073741824
-    [ "$MIN_VALUE" -le 0 ] && return 0
+    MIN_VALUE="$(gb_to_bytes "$FETCH_MIN_FILE_BYTES")"  # 转成字节后再判断
+    is_uint "$MIN_VALUE" || MIN_VALUE=0
+    [ "$MIN_VALUE" -le 0 ] && return 0  # 0 表示不限制大小
 
     set +e
     HEAD_OUT="$(curl -IL --connect-timeout 10 --max-time 30 --fail -L \

@@ -359,16 +359,17 @@ const FIELD_META={LIMIT_RATE:{label:"下载限速",type:"text",desc:"如 5M / 50
 SLEEP_MAX:{label:"最大休眠时间(秒)",type:"number",desc:"每轮任务之间最大间隔"},
 SLEEP_MIN:{label:"最小休眠时间(秒)",type:"number",desc:"每轮任务之间最小间隔"},
 DYNAMIC_SLEEP:{label:"动态休眠",type:"select",options:[["true","开启"],["false","关闭"]],desc:"开启后随机在最小/最大之间取值"},
-DYNAMIC_SLEEP_MIN_BYTES:{label:"动态休眠阈值(字节)",type:"number",desc:"单次下载小于此值时本轮不启用动态休眠"},
+DYNAMIC_SLEEP_MIN_BYTES:{label:"动态休眠阈值(GB)",type:"number",desc:"单次下载小于此值时本轮不启用动态休眠"},
 RUN_TIMES_MAX:{label:"每轮最大下载次数",type:"number",desc:"每轮任务最多执行多少次下载"},
+ROUND_MIN_BYTES:{label:"本轮最小下载量(GB)",type:"number",desc:"本轮下载总量低于此值时跳过休眠立即开始下一轮"},
 CONNECT_TIMEOUT:{label:"连接超时(秒)",type:"number",desc:"curl 连接超时时间"},
 MAX_TIME:{label:"单次下载最大时间(秒)",type:"number",desc:"单次下载的最大总时长"},
 RETRY:{label:"重试次数",type:"number",desc:"curl 失败重试次数"},
 RETRY_DELAY:{label:"重试间隔(秒)",type:"number",desc:"重试之间等待的秒数"},
 FETCH_INTERVAL:{label:"链接抓取间隔(秒)",type:"number",desc:"每隔多久重新抓取一次下载链接"},
-FETCH_MIN_FILE_BYTES:{label:"最小文件大小(字节)",type:"number",desc:"抓取链接时过滤小文件的阈值"},
+FETCH_MIN_FILE_BYTES:{label:"最小文件大小(GB)",type:"number",desc:"抓取链接时过滤小文件的阈值"},
 USER_AGENT:{label:"User-Agent",type:"text",desc:"HTTP 请求标识"},
-MAX_DAILY_BYTES:{label:"单日最大下载量(字节)",type:"number",desc:"达到上限后今日暂停下载"},
+MAX_DAILY_BYTES:{label:"单日最大下载量(GB)",type:"number",desc:"达到上限后今日暂停下载"},
 DOWNLOAD_URLS:{label:"下载链接列表",type:"textarea",desc:"多个链接用英文逗号分隔"}};
 document.querySelectorAll('.tab').forEach(b=>{b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('tab-'+b.dataset.tab).classList.add('active');if(b.dataset.tab==='logs')startLogStream();}});
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}

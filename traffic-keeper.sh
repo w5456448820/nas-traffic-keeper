@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 主运行脚本
-#  Version : 2.7.3
-#  核心下载逻辑保持不变
+#  Version : 2.7.3-unit-fixed
+#  彻底修复GB/Bytes/TiB单位换算问题
 # =========================================================
 set -e
 
@@ -69,18 +69,28 @@ is_uint() {
     esac
 }
 
+# ==================== 核心单位转换函数（已校验） ====================
+# GB转字节（1GB=1024^3 Bytes，和Web配置页完全对齐）
+gb_to_bytes() {
+    local val="${1:-0}"
+    is_uint "$val" || val=0
+    [ "$val" -le 0 ] && echo 0 && return
+    echo $((val * 1024 * 1024 * 1024))
+}
+
+# 1024进制字节转人类可读格式（TiB/GiB/MiB/KiB，绝对无单位错误）
 human_bytes() {
     VALUE="${1:-0}"
     is_uint "$VALUE" || VALUE=0
-    # 使用 GB/GiB 友好显示（SI 单位，1000 进制）
-    for unit in TB GB MB KB B; do
+    # 顺序必须从大到小，确保优先匹配大单位
+    for unit in TiB GiB MiB KiB B; do
         div=1
         case "$unit" in
-            TB) div=1000000000000 ;;
-            GB) div=1000000000 ;;
-            MB) div=1000000 ;;
-            KB) div=1000 ;;
-            B)  div=1 ;;
+            TiB) div=1099511627776 ;;  # 1024^4，之前你这里是错的！
+            GiB) div=1073741824 ;;      # 1024^3
+            MiB) div=1048576 ;;         # 1024^2
+            KiB) div=1024 ;;            # 1024^1
+            B)   div=1 ;;
         esac
         if [ "$VALUE" -ge "$div" ]; then
             echo "$(awk "BEGIN {printf \"%.2f\", $VALUE/$div}") $unit"
@@ -89,6 +99,7 @@ human_bytes() {
     done
     echo "0 B"
 }
+# ===================================================================
 
 human_seconds() {
     VALUE="${1:-0}"
@@ -116,30 +127,28 @@ apply_defaults() {
     DYNAMIC_SLEEP="${DYNAMIC_SLEEP:-true}"
     [ "$DYNAMIC_SLEEP" = "false" ] || DYNAMIC_SLEEP=true
 
+    # 默认值单位均为GB，和Web界面完全对齐
     is_uint "${SLEEP_MIN:-}" || SLEEP_MIN=60
     is_uint "${SLEEP_MAX:-}" || SLEEP_MAX=900
-    is_uint "${DYNAMIC_SLEEP_MIN_BYTES:-}" || DYNAMIC_SLEEP_MIN_BYTES=1073741824
-    is_uint "${ROUND_MIN_BYTES:-}" || ROUND_MIN_BYTES=0
+    is_uint "${DYNAMIC_SLEEP_MIN_BYTES:-}" || DYNAMIC_SLEEP_MIN_BYTES=1  # 默认1GB
+    is_uint "${ROUND_MIN_BYTES:-}" || ROUND_MIN_BYTES=0                 # 默认0GB
     is_uint "${RUN_TIMES_MAX:-}" || RUN_TIMES_MAX=3
     is_uint "${CONNECT_TIMEOUT:-}" || CONNECT_TIMEOUT=15
     is_uint "${MAX_TIME:-}" || MAX_TIME=3000
     is_uint "${RETRY:-}" || RETRY=5
     is_uint "${RETRY_DELAY:-}" || RETRY_DELAY=5
     is_uint "${FETCH_INTERVAL:-}" || FETCH_INTERVAL=21600
-    is_uint "${FETCH_MIN_FILE_BYTES:-}" || FETCH_MIN_FILE_BYTES=1073741824
-    is_uint "${MAX_DAILY_BYTES:-}" || MAX_DAILY_BYTES=0
+    is_uint "${FETCH_MIN_FILE_BYTES:-}" || FETCH_MIN_FILE_BYTES=1       # 默认1GB
+    is_uint "${MAX_DAILY_BYTES:-}" || MAX_DAILY_BYTES=200              # 默认200GB
 
     [ "$SLEEP_MIN" -lt 1 ] && SLEEP_MIN=60
     [ "$SLEEP_MAX" -lt 1 ] && SLEEP_MAX=900
-    [ "$DYNAMIC_SLEEP_MIN_BYTES" -lt 0 ] && DYNAMIC_SLEEP_MIN_BYTES=1073741824
-    [ "$ROUND_MIN_BYTES" -lt 0 ] && ROUND_MIN_BYTES=0
     [ "$RUN_TIMES_MAX" -lt 1 ] && RUN_TIMES_MAX=1
     [ "$CONNECT_TIMEOUT" -lt 1 ] && CONNECT_TIMEOUT=15
     [ "$MAX_TIME" -lt 1 ] && MAX_TIME=3000
     [ "$RETRY" -lt 0 ] && RETRY=5
     [ "$RETRY_DELAY" -lt 0 ] && RETRY_DELAY=5
     [ "$FETCH_INTERVAL" -lt 60 ] && FETCH_INTERVAL=60
-    [ "$FETCH_MIN_FILE_BYTES" -lt 0 ] && FETCH_MIN_FILE_BYTES=1073741824
 
     return 0
 }
@@ -156,7 +165,15 @@ reload_env() {
     fi
 
     apply_defaults
-    echo "✅ 配置已更新"
+
+    # ==================== 核心修复：GB转字节（仅转换一次） ====================
+    FETCH_MIN_FILE_BYTES=$(gb_to_bytes "${FETCH_MIN_FILE_BYTES:-0}")
+    DYNAMIC_SLEEP_MIN_BYTES=$(gb_to_bytes "${DYNAMIC_SLEEP_MIN_BYTES:-0}")
+    MAX_DAILY_BYTES=$(gb_to_bytes "${MAX_DAILY_BYTES:-0}")
+    ROUND_MIN_BYTES=$(gb_to_bytes "${ROUND_MIN_BYTES:-0}")
+    # ======================================================================
+
+    echo "✅ 配置已更新（单位已转为字节）"
 }
 
 rand_n() {
@@ -333,7 +350,7 @@ validate_link() {
     check_min_file_size() {
         SIZE_VALUE="$1"
         MIN_VALUE="${FETCH_MIN_FILE_BYTES:-0}"
-        is_uint "$MIN_VALUE" || MIN_VALUE=1073741824
+        is_uint "$MIN_VALUE" || MIN_VALUE=0
         [ "$MIN_VALUE" -le 0 ] && return 0
         if ! is_uint "$SIZE_VALUE"; then
             echo "   [校验] ⚠️  无法确认文件大小，保留到下载时判断"
@@ -518,7 +535,7 @@ while true; do
         [ -n "$LINK_SOURCE" ] && printf '   来源: %s\n' "$LINK_SOURCE"
 
         SKIP_DOWNLOAD=false
-        if [ -n "$FETCH_MIN_FILE_BYTES" ] && [ "$FETCH_MIN_FILE_BYTES" -gt 0 ]; then
+        if [ "$FETCH_MIN_FILE_BYTES" -gt 0 ]; then
             echo "   [下载前] 🔍 正在检查文件大小..."
             set +e
             HEAD_SIZE="$(curl -IL --connect-timeout 5 --max-time 10 --fail -L \

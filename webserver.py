@@ -2,6 +2,7 @@
 # =========================================================
 #  Traffic Keeper - Web 管理界面服务器
 #  使用 Python 标准库实现（无需第三方依赖）
+#  Version : 2.7.4
 #  端口：默认 8080，可通过 .env 的 WEB_PORT 配置
 # =========================================================
 import http.server
@@ -254,6 +255,32 @@ def get_history():
     def get_date(rec):
         return rec.get("date", "")
     records.sort(key=get_date, reverse=True)
+    # 修复：去重同一天的数据（优先使用 stats_show）
+    seen_dates = set()
+    unique_records = []
+    for rec in records:
+        date = rec.get("date", "")
+        if date in seen_dates:
+            continue
+        seen_dates.add(date)
+        unique_records.append(rec)
+    records = unique_records
+    # 修复：对 data 源的记录进行单位换算
+    for rec in records:
+        if rec.get("source") == "data":
+            # 转换 SIZE_BYTES 为人类可读格式
+            size_bytes = int(rec.get("SIZE_BYTES", "0") or "0")
+            if size_bytes >= 1024**3:
+                rec["_SIZE_HUMAN"] = f"{size_bytes/1024**3:.2f} GB"
+            elif size_bytes >= 1024**2:
+                rec["_SIZE_HUMAN"] = f"{size_bytes/1024**2:.2f} MB"
+            elif size_bytes >= 1024:
+                rec["_SIZE_HUMAN"] = f"{size_bytes/1024:.2f} KB"
+            else:
+                rec["_SIZE_HUMAN"] = f"{size_bytes} B"
+            # 转换 TIME_SECONDS 为人类可读格式
+            time_seconds = int(rec.get("TIME_SECONDS", "0") or "0")
+            rec["_DURATION_HUMAN"] = f"{time_seconds//60:02d}min {time_seconds%60:02d}s"
     return records[:100]  # 最多返回100条
 
 def get_log_tail(limit=1000):

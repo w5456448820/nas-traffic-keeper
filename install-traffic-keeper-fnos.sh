@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
 # =========================================================
 #  Traffic Keeper - FnOS / 飞牛 NAS 一键安装脚本
-#  Version : 2.7.3
-#  功能：
-#    - 自动部署所有脚本（含权限处理）
-#    - 自动生成 .env（如缺失）
-#    - 自动清理旧容器并拉取最新镜像
-#    - 启动后显示管理界面地址
-#  用法：
-#    1) 把项目文件放到任意目录（推荐 /vol2/1000/Docker/traffic-keeper）
-#    2) chmod +x install-traffic-keeper-fnos.sh
-#    3) ./install-traffic-keeper-fnos.sh
+#  Version : 2.7.4
+#  更新内容：
+#    - 修复 .env 配置项的单位问题（GB vs 字节）
+#    - 增强配置检查逻辑
+#    - 优化错误处理和用户提示
 # =========================================================
 set -e
 
@@ -91,6 +86,34 @@ echo "✅ 检查配置文件..."
 ENV_FILE="$PROJECT_DIR/.env"
 need_write_env=false
 
+# 检查旧配置中的字节单位问题
+check_byte_units() {
+    if [ -f "$ENV_FILE" ]; then
+        local warnings=()
+        
+        # 检查可能的字节单位配置
+        for field in FETCH_MIN_FILE_BYTES DYNAMIC_SLEEP_MIN_BYTES MAX_DAILY_BYTES; do
+            if grep -qE "^${field}=" "$ENV_FILE" 2>/dev/null; then
+                local value=$(grep -E "^${field}=" "$ENV_FILE" | cut -d= -f2 | tr -d '"' | tr -d "'")
+                # 如果值大于 1000 且不是明显的 GB 值（如 1, 2, 200），可能是字节单位
+                if [ "$value" -gt 1000 ] 2>/dev/null && [ "$value" -ne 1 ] && [ "$value" -ne 2 ] && [ "$value" -ne 200 ]; then
+                    warnings+=("${field}=${value} 可能使用了字节单位，应为 GB 单位")
+                fi
+            fi
+        done
+        
+        if [ ${#warnings[@]} -gt 0 ]; then
+            echo "   ⚠️  检测到可能的配置单位问题："
+            for warning in "${warnings[@]}"; do
+                echo "      - $warning"
+            done
+            echo "      新版本要求这些字段使用 GB 单位（如 1 表示 1GB）"
+            echo "      将在生成新配置时自动修复"
+            need_write_env=true
+        fi
+    fi
+}
+
 if [ ! -f "$ENV_FILE" ]; then
     echo "   未检测到 .env，将使用默认配置生成"
     need_write_env=true
@@ -103,6 +126,11 @@ else
             break
         fi
     done
+    
+    # 检查是否有字节单位的配置需要修复
+    if [ "$need_write_env" = false ]; then
+        check_byte_units
+    fi
 fi
 
 if [ "$need_write_env" = true ]; then
@@ -111,6 +139,8 @@ if [ "$need_write_env" = true ]; then
 #  Traffic Keeper - 环境变量配置文件
 #  可通过 Web 界面（http://<NAS_IP>:8080）修改
 #  修改后无需重启容器，下一轮任务循环会自动重新加载
+#
+#  注意：以下带 * 的字段单位为 GB（不是字节）
 # =========================================================
 
 # 下载限速（K/M/G），0 或留空表示不限速
@@ -125,10 +155,10 @@ SLEEP_MIN=60
 # 是否启用动态休眠（true / false）
 DYNAMIC_SLEEP=true
 
-# 启用动态休眠所需的单次最小下载量（字节）
-DYNAMIC_SLEEP_MIN_BYTES=1073741824
+# * 启用动态休眠所需的单次最小下载量（GB）
+DYNAMIC_SLEEP_MIN_BYTES=1
 
-# 本轮下载总量低于此值时跳过动态休眠（字节），0 表示不检查
+# 本轮下载总量低于此值时跳过动态休眠（GB），0 表示不检查
 ROUND_MIN_BYTES=0
 
 # 每轮最多执行下载次数
@@ -149,14 +179,14 @@ RETRY_DELAY=5
 # 链接抓取间隔（秒）
 FETCH_INTERVAL=21600
 
-# 抓取链接的最小文件大小（字节）
-FETCH_MIN_FILE_BYTES=1073741824
+# * 抓取链接的最小文件大小（GB）
+FETCH_MIN_FILE_BYTES=1
 
 # User-Agent
 USER_AGENT='traffic-keeper/2.7.3 curl/8.0'
 
-# 单日最大下载量（字节）：200 GB
-MAX_DAILY_BYTES=214748364800
+# * 单日最大下载量（GB）：200 GB
+MAX_DAILY_BYTES=200
 
 # 下载链接（逗号分隔）
 DOWNLOAD_URLS="https://releases.ubuntu.com/22.04.5/ubuntu-22.04.5-desktop-amd64.iso,https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.tar.xz,http://updates-http.cdn-apple.com/2019WinterFCS/fullrestores/041-39257/32129B6C-292C-11E9-9E72-4511412B0A59/iPhone_4.7_12.1.4_16D57_Restore.ipsw,http://dldir1.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.15_240808_x64_01.exe,https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/22.04.5/ubuntu-22.04.5-desktop-amd64.iso,https://mirrors.aliyun.com/linux-kernel/v6.x/linux-6.6.tar.xz,https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/v20.12.2/node-v20.12.2-linux-x64.tar.xz,https://dldir1.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.15_240808_x64_01.exe,https://updates-http.cdn-apple.com/2019WinterFCS/fullrestores/041-39257/32129B6C-292C-11E9-9E72-4511412B0A59/iPhone_4.7_12.1.4_16D57_Restore.ipsw,https://mirrors.aliyun.com/ubuntu-releases/22.04.5/ubuntu-22.04.5-desktop-amd64.iso"
@@ -164,7 +194,7 @@ DOWNLOAD_URLS="https://releases.ubuntu.com/22.04.5/ubuntu-22.04.5-desktop-amd64.
 # Web 管理界面端口（需要与 docker-compose.yml 中的端口映射保持一致）
 WEB_PORT=8080
 ENVEOF
-    echo "   .env 已生成 ✓"
+    echo "   .env 已生成（已修复配置单位问题） ✓"
 else
     echo "   .env 已存在，将保留您的自定义配置 ✓"
 fi

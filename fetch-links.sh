@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 独立链接抓取脚本
-#  Version : 2.7.3-fixed
+#  Version : 2.7.4
 #  修复：和 traffic-keeper.sh 统一 GB→Bytes 转换规则
 #  配置说明：.env 中 FETCH_MIN_FILE_BYTES 填写 GB 值，0 表示不限制
 # =========================================================

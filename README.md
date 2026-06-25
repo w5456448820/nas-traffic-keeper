@@ -1,33 +1,25 @@
 # Traffic Keeper
 
-飞牛 NAS / FnOS 流量平衡脚本，支持**本地管理界面**（浏览器配置 + 实时日志查看）和 Docker 容器化部署。
+飞牛 NAS / FnOS 流量平衡脚本，支持**Web 管理界面**（浏览器配置 + 实时日志查看）和 Docker 容器化一键部署。
 
 通过定时下载公开大文件来生成网络流量，并记录每日下载次数、流量和耗时统计。
 
 ## 功能
 
 ### 核心能力
-- **固定安装目录**：`/vol2/1000/Docker/traffic-keeper`
-- **下载限速**：支持 K/M/G 格式，0 或留空表示不限速
-- **随机休眠**：每轮任务在设定范围内随机休眠，避免固定周期被识别
+- **一键安装**：`install-traffic-keeper-fnos.sh` 自动完成所有部署步骤
+- **Docker 容器化**：基于 `python:3.12-alpine` 镜像，通过 `docker-compose.yml` 管理
+- **Web 管理界面**：通过 `http://<NAS_IP>:8080` 进行图形化配置和监控
+- **实时日志流**：Web 界面通过 SSE（Server-Sent Events）实时显示终端输出
+- **配置热生效**：保存配置后下一轮任务循环自动加载，无需重启容器
+- **下载限速**：支持 K/M/G 格式（如 `5M`、`500K`、`1G`），0 或留空表示不限速
+- **随机休眠**：每轮任务在 `SLEEP_MIN` ~ `SLEEP_MAX` 范围内随机休眠，避免固定周期被识别
 - **动态休眠**：单次下载量较小时自动缩短休眠时间
 - **每日流量上限**：达到设定值后自动暂停，次日重置
 - **链接抓取**：自动从 GitHub Release 和国内镜像站抓取大文件链接
-- **文件大小过滤**：根据 Content-Length/Content-Range 过滤小文件
+- **文件大小过滤**：根据 Content-Length / Content-Range 过滤小文件
 - **统计持久化**：每日数据保存到 `data/` 和 `流量统计/`
-
-### Web 管理界面（v2.7.0+）
-- **浏览器配置**：通过 `http://<NAS_IP>:8080` 图形化配置所有参数
-- **实时日志**：Web 界面实时显示 traffic-keeper.sh 的终端输出（Server-Sent Events）
-- **配置热生效**：保存配置后下一轮任务循环自动加载，无需重启容器
-- **统计面板**：顶部卡片实时展示今日下载次数、流量、累计耗时
-
-### 一键部署
-- `install-traffic-keeper-fnos.sh` 自动完成所有部署步骤
-- 自动检查并修复 Alpine 软件源（三镜像源容错）
-- 自动检测 Docker 环境（`docker compose` / `docker-compose`）
-- 自动生成 `.env` 配置文件（保留用户自定义配置）
-- 首次运行自动拉取 `python:3.12-alpine` 镜像
+- **镜像源容错**：Alpine 软件源支持三镜像自动切换（阿里云 / 清华 / 官方），超时可控
 
 ## 项目架构
 
@@ -44,7 +36,7 @@ traffic-keeper/
 │   ├── stats_data_YYYY-MM-DD.log    # 每日原始数据
 │   └── console.log                  # 主脚本终端日志（Web 实时读取）
 ├── 流量统计/                        # 显示用统计数据
-│   └── stats_show_YYYY-MM-DD.log    # 每日格式化统计
+│   └── stats_show_YYYY-MM-DD.log   # 每日格式化统计
 └── links/                           # 抓取链接目录
     ├── fetched-links.txt             # 校验通过的可用链接
     └── .last-fetch                  # 上次抓取时间戳
@@ -58,41 +50,46 @@ traffic-keeper/
 
 **功能**：
 - 配置所有脚本的可执行权限
-- 检查必需文件是否齐全（5 个核心文件）
-- 若 `.env` 不存在或缺少关键字段，自动生成默认配置
+- 检查必需文件是否齐全（5 个核心文件：`traffic-keeper.sh`、`fetch-links.sh`、`webserver.py`、`entrypoint.sh`、`docker-compose.yml`）
+- 缺失文件自动从 GitHub 仓库下载（`raw.githubusercontent.com`）
+- `.env` 不存在或缺少关键字段时自动生成默认配置
+- 自动检测 `.env` 中可能的字节/GB 单位配置错误并修复
 - 自动检测 `docker compose` 或 `docker-compose` 命令
+- 自动探测 NAS 的 LAN IP 并输出访问地址
 - 清理旧容器，拉取最新镜像，启动新容器
-- 输出 NAS 实际 IP 和访问地址
 
 ### 2. 主运行脚本 (traffic-keeper.sh)
 
 **职责**：核心流量生成逻辑，控制下载循环
 
 **主要功能**：
-- Alpine 软件源多镜像容错（阿里云/清华/官方，超时控制）
-- 环境变量加载与合法性校验
-- 下载链接验证（Content-Length/Content-Range）
+- Alpine 软件源多镜像容错（阿里云 / 清华 / 官方，超时控制）
+- 环境变量加载与合法性校验（含 GB→字节自动转换）
+- 下载链接验证（Content-Length / Content-Range 双重检测）
 - 流量统计记录（次数、字节数、耗时）
 - 动态/固定休眠控制
 - 每日流量上限控制
 - 日期切换自动重置统计
 - 抓取链接循环使用 + 兜底 `.env` 备用链接
+- 下载前文件大小预检，过小文件自动跳过
 
 ### 3. 链接抓取脚本 (fetch-links.sh)
 
 **职责**：从多个来源抓取可用的大文件下载链接
 
 **数据来源**：
-- GitHub API（curl, jq, nodejs releases）
-- 国内镜像站（清华大学镜像源、阿里云镜像源等）
+- **GitHub API**：curl、jq、nodejs 等仓库的 Releases 资源
+- **国内镜像站**：清华大学镜像源、阿里云镜像源等
 
 **输出**：`./links/fetched-links.txt`（一行一个校验通过的 URL）
+
+**过滤规则**：通过 `FETCH_MIN_FILE_BYTES`（GB 单位）配置最小文件大小阈值
 
 ### 4. Web 服务器 (webserver.py)
 
 **职责**：提供管理界面（HTML + API）
 
-**实现**：纯 Python 标准库（`http.server`, `socketserver`, `json`, `threading`），无需任何第三方依赖
+**实现**：纯 Python 标准库（`http.server`、`socketserver`、`json`、`threading`），零第三方依赖
 
 **API 端点**：
 
@@ -102,6 +99,7 @@ traffic-keeper/
 | `/api/config` | GET | 读取当前 `.env` 配置 |
 | `/api/config` | POST | 保存配置到 `.env` |
 | `/api/stats` | GET | 读取今日统计数据 |
+| `/api/history` | GET | 读取历史统计数据（最近 100 条，按日期倒序） |
 | `/api/logs` | GET | 获取历史日志（最新 2000 行） |
 | `/api/logs/stream` | GET | **SSE 实时日志流** |
 
@@ -109,12 +107,13 @@ traffic-keeper/
 
 | 类/函数 | 说明 |
 |---------|------|
-| `Handler` | HTTP 请求处理器（GET/POST 分发） |
-| `LogWatcher` | 日志文件尾行监控（inode 变更检测防截断） |
+| `Handler` | HTTP 请求处理器（GET/POST 分发，支持 4 个 API + SSE） |
+| `LogWatcher` | 日志文件尾行监控（inode 变更检测，防截断） |
 | `ThreadedServer` | 多线程 HTTPServer（支持并发访问） |
-| `env_to_dict()` | 解析 `.env` 为 Python dict |
+| `env_to_dict()` | 解析 `.env` 为 Python dict（处理引号） |
 | `write_env()` | 将 dict 写回 `.env`（保留注释和格式） |
 | `get_stats()` | 读取并格式化今日统计数据 |
+| `get_history()` | 读取历史统计数据（data + stats_show 双源，去重） |
 
 ### 5. 容器入口脚本 (entrypoint.sh)
 
@@ -122,9 +121,9 @@ traffic-keeper/
 
 **流程**：
 1. 创建 `/app/data` 目录
-2. 后台启动 `traffic-keeper.sh`，将输出 `tee` 到 `/app/data/console.log`
+2. 后台启动 `traffic-keeper.sh`，输出同时写入 `console.log` 和标准输出
 3. 日志文件超过 2MB 时自动截断保留最新 500 行
-4. 前台执行 `python3 webserver.py` 启动 Web 服务
+4. 前台执行 `python3 webserver.py` 启动 Web 服务（保证容器不退出）
 
 ## 配置
 
@@ -144,24 +143,27 @@ vi /vol2/1000/Docker/traffic-keeper/.env
 
 ### 环境变量说明
 
-| 变量名 | 默认值 | 说明 |
-|--------|--------|------|
-| `LIMIT_RATE` | `5M` | 下载限速（K/M/G），0 或留空表示不限速 |
-| `SLEEP_MIN` | `60` | 每轮任务最小休眠秒数 |
-| `SLEEP_MAX` | `900` | 每轮任务最大休眠秒数 |
-| `DYNAMIC_SLEEP` | `true` | 是否启用动态休眠（`true` / `false`） |
-| `DYNAMIC_SLEEP_MIN_BYTES` | `1073741824` (1 GiB) | 启用动态休眠所需的单次最小下载量 |
-| `RUN_TIMES_MAX` | `3` | 每轮最多执行下载次数 |
-| `CONNECT_TIMEOUT` | `15` | 连接超时秒数 |
-| `MAX_TIME` | `3000` | 单次下载最大时间秒数 |
-| `RETRY` | `5` | curl 重试次数 |
-| `RETRY_DELAY` | `5` | 重试间隔秒数 |
-| `FETCH_INTERVAL` | `21600` (6小时) | 链接抓取间隔秒数 |
-| `FETCH_MIN_FILE_BYTES` | `1073741824` (1 GiB) | 抓取链接的最小文件大小 |
-| `USER_AGENT` | `traffic-keeper/2.7.3 curl/8.0` | User-Agent |
-| `MAX_DAILY_BYTES` | `214748364800` (200 GB) | 单日最大下载量 |
-| `DOWNLOAD_URLS` | （多个 ISO 链接） | 备用下载链接列表（逗号分隔） |
-| `WEB_PORT` | `8080` | Web 管理界面端口 |
+> **注意**：带 * 的字段单位为 **GB**（不是字节），在 `.env` 中直接填写数字即可（如 `1` 表示 1GB）。主脚本会自动转换为字节。
+
+| 变量名 | 默认值 | 单位 | 说明 |
+|--------|--------|------|------|
+| `LIMIT_RATE` | `5M` | - | 下载限速（K/M/G），0 或留空表示不限速 |
+| `SLEEP_MIN` | `60` | 秒 | 每轮任务最小休眠时间 |
+| `SLEEP_MAX` | `900` | 秒 | 每轮任务最大休眠时间 |
+| `DYNAMIC_SLEEP` | `true` | - | 是否启用动态休眠（`true` / `false`） |
+| `DYNAMIC_SLEEP_MIN_BYTES` | `1` | **GB** | 启用动态休眠所需的单次最小下载量 |
+| `ROUND_MIN_BYTES` | `0` | **GB** | 本轮下载总量低于此值时跳过休眠，0 表示不检查 |
+| `RUN_TIMES_MAX` | `3` | - | 每轮最多执行下载次数 |
+| `CONNECT_TIMEOUT` | `15` | 秒 | 连接超时时间 |
+| `MAX_TIME` | `3000` | 秒 | 单次下载最大时间 |
+| `RETRY` | `5` | - | curl 重试次数 |
+| `RETRY_DELAY` | `5` | 秒 | 重试间隔 |
+| `FETCH_INTERVAL` | `21600` | 秒 | 链接抓取间隔（默认 6 小时） |
+| `FETCH_MIN_FILE_BYTES` | `1` | **GB** | 抓取链接的最小文件大小 |
+| `USER_AGENT` | `traffic-keeper/2.7.3 curl/8.0` | - | HTTP User-Agent |
+| `MAX_DAILY_BYTES` | `200` | **GB** | 单日最大下载量 |
+| `DOWNLOAD_URLS` | （多个 ISO 链接） | - | 备用下载链接列表（逗号分隔） |
+| `WEB_PORT` | `8080` | - | Web 管理界面端口 |
 
 ## 关键函数说明
 
@@ -173,18 +175,19 @@ vi /vol2/1000/Docker/traffic-keeper/.env
 |--------|------|--------|------|
 | `get_today` | - | `YYYY-MM-DD` | 获取当前日期 |
 | `is_uint` | `$1` | 0/1 | 验证是否为无符号整数 |
-| `human_bytes` | `$1` (字节数) | 人类可读大小 | 字节数转可读格式（如 1.5GiB） |
-| `human_seconds` | `$1` (秒数) | `XXmin XXs` | 秒数转可读格式 |
-| `next_wake_time` | `$1` (秒数) | `HH:MM:SS` | 计算下次唤醒时间 |
-| `normalize_url` | `$1` | 规范化 URL | 去除 URL 首尾空白和特殊字符 |
-| `rand_n` | `$1` (最大值) | 1~MAX 随机数 | 生成均匀分布随机数（`$RANDOM` 算法） |
+| `gb_to_bytes` | `$1`（GB 数） | 字节数 | GB 转字节（1GB = 1024³ Bytes） |
+| `human_bytes` | `$1`（字节数） | 人类可读大小 | 字节数转可读格式（TiB/GiB/MiB/KiB/B） |
+| `human_seconds` | `$1`（秒数） | `HH:MM:SS` | 秒数转可读格式 |
+| `next_wake_time` | `$1`（秒数） | `HH:MM:SS` | 计算下次唤醒时间 |
+| `normalize_url` | `$1` | 规范化 URL | 去除首尾空白和特殊字符 |
+| `rand_n` | `$1`（最大值） | 1~MAX 随机数 | 生成均匀分布随机数 |
 
 #### 配置函数
 
 | 函数名 | 说明 |
 |--------|------|
-| `apply_defaults` | 应用默认配置值并校验参数合法性 |
-| `reload_env` | 重新加载 `.env` 配置文件，错误时保持当前配置继续运行 |
+| `apply_defaults` | 应用默认配置值并校验参数合法性，单位统一为 GB 输入 |
+| `reload_env` | 重新加载 `.env` 配置，自动将 GB 单位转为字节，错误时保持当前配置 |
 
 #### 统计函数
 
@@ -203,6 +206,7 @@ vi /vol2/1000/Docker/traffic-keeper/.env
 | `should_fetch_links` | 判断是否到达抓取间隔 |
 | `force_fetch_next_round` | 删除时间戳文件，标记下一轮强制重新抓取 |
 | `fetch_links` | 执行抓取脚本并验证结果 |
+| `check_fetched_links` | 逐条校验抓取到的链接（去重 + 排除无效链接） |
 
 #### 业务函数
 
@@ -210,29 +214,32 @@ vi /vol2/1000/Docker/traffic-keeper/.env
 |--------|------|
 | `check_daily_limit` | 检查是否达到每日流量上限 |
 | `calc_sleep_time` | 计算本轮休眠时间（动态模式 = 随机，固定模式 = `SLEEP_MIN`） |
+| `validate_link` | 验证单个链接是否可用（HEAD 请求 + Content-Length 校验） |
 
 ### fetch-links.sh 核心函数
 
 | 函数名 | 参数 | 返回值 | 说明 |
 |--------|------|--------|------|
 | `is_uint` | `$1` | 0/1 | 验证是否为无符号整数 |
+| `gb_to_bytes` | `$1` | 字节数 | GB 转字节 |
 | `human_bytes` | `$1` | 人类可读大小 | 字节数转可读格式 |
-| `extract_content_length` | `$1` (响应头) | 文件大小 | 从 Content-Length 提取文件大小 |
-| `extract_content_range_total` | `$1` (响应头) | 文件大小 | 从 Content-Range 提取文件总大小 |
-| `remote_file_size_check` | `$1` (URL) | 0/1/2 | 检查远端文件大小是否达标 |
-| `append_if_large_enough` | `$1` (URL) | - | 检查并追加达标链接到输出文件 |
+| `remote_file_size_check` | `$1`（URL） | 0/1/2 | 检查远端文件大小是否达标（0=达标，1=过小，2=无法确认） |
+| `append_if_large_enough` | `$1`（URL） | - | 检查并追加达标链接到输出文件 |
 
 ### webserver.py 核心函数/类
 
 | 类/函数 | 说明 |
 |---------|------|
-| `Handler.do_GET` | 分发 GET 请求（HTML 页面 + 4 个 API） |
+| `Handler.do_GET` | 分发 GET 请求（HTML 页面 + 6 个 API 端点） |
 | `Handler.do_POST` | 处理配置保存请求 |
-| `LogWatcher` | 日志文件监控（防截断 inode 检测） |
+| `get_web_port()` | 从 `.env` 读取 `WEB_PORT`，默认 8080 |
+| `LogWatcher` | 日志文件监控（inode 检测防截断，支持文件重建后自动重新打开） |
 | `ThreadedServer` | 多线程 HTTP 服务器 |
-| `env_to_dict()` | 解析 `.env` 为 Python dict（处理引号） |
-| `write_env()` | 将 dict 写回 `.env`（保留注释格式） |
-| `get_stats()` | 读取并格式化今日统计数据 |
+| `env_to_dict()` | 解析 `.env` 为 Python dict（处理单/双引号） |
+| `write_env()` | 将 dict 写回 `.env`（保留注释格式，降级处理 Docker volume 文件锁） |
+| `get_stats()` | 读取并格式化今日统计数据（优先 data/，回退 流量统计/） |
+| `get_history()` | 读取历史统计数据（双源合并去重，最多 100 条） |
+| `get_log_tail()` | 读取日志文件末尾（默认 1000 行） |
 
 ## 依赖关系
 
@@ -245,9 +252,9 @@ vi /vol2/1000/Docker/traffic-keeper/.env
 
 容器启动时自动修复软件源，依次尝试：
 
-1. `https://mirrors.aliyun.com/alpine/v{VER}/...`
-2. `https://mirrors.tuna.tsinghua.edu.cn/alpine/v{VER}/...`
-3. `http://dl-cdn.alpinelinux.org/alpine/v{VER}/...`
+1. `https://mirrors.aliyun.com/alpine/v{VERSION}/...`
+2. `https://mirrors.tuna.tsinghua.edu.cn/alpine/v{VERSION}/...`
+3. `http://dl-cdn.alpinelinux.org/alpine/v{VERSION}/...`
 
 每个镜像最多等待 60 秒（`apk update`）+ 120 秒（`apk add`），失败自动尝试下一个。
 
@@ -255,11 +262,11 @@ vi /vol2/1000/Docker/traffic-keeper/.env
 
 ### 下载来源
 
-1. **GitHub Releases**（通过 fetch-links.sh 抓取）：curl, jq, nodejs
+1. **GitHub Releases**（通过 fetch-links.sh 抓取）：curl、jq、nodejs 等
 2. **国内镜像站**：
    - 清华大学镜像源 (`mirrors.tuna.tsinghua.edu.cn`)
    - 阿里云镜像源 (`mirrors.aliyun.com`)
-   - 官方镜像源 (`releases.ubuntu.com`, `cdn.kernel.org` 等)
+   - 官方镜像源 (`releases.ubuntu.com`、`cdn.kernel.org` 等)
 
 ## Docker 配置
 
@@ -280,55 +287,52 @@ services:
       - ./.env:/app/.env                                 # 配置文件（读写）
       - ./data:/app/data                                 # 数据目录（读写）
       - ./流量统计:/app/流量统计                          # 显示统计（读写）
-      - links:/app/links                                 # 抓取链接（持久化）
+      - links:/app/links                                 # 抓取链接（持久化命名卷）
       - /etc/localtime:/etc/localtime:ro                # 时区同步
     ports:
       - "8080:8080"                                      # Web 管理界面
     tmpfs:
       - /tmp                                            # 临时文件系统
+    logging:
+      driver: json-file
+      options:
+        max-size: 2m      # 单个日志文件最大 2MB
+        max-file: 3       # 最多保留 3 个轮转文件
     command: ["/bin/sh", "/app/entrypoint.sh"]          # 入口脚本
-```
-
-### 日志配置
-
-```yaml
-logging:
-  driver: json-file
-  options:
-    max-size: 2m      # 单个日志文件最大 2MB
-    max-file: 3       # 最多保留 3 个轮转文件
 ```
 
 ## 主循环流程
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    entrypoint.sh                             │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  后台: traffic-keeper.sh (tee → console.log)           │ │
-│  └────────────────────────────────────────────────────────┘ │
-│  前台: python3 webserver.py (端口 8080)                     │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                    entrypoint.sh                             										│
+│  ┌───────────────────────────────────────────────────────┐ 	│
+│  │  后台: traffic-keeper.sh (输出 → console.log + stdout) 							│	│
+│  └───────────────────────────────────────────────────────┘ 	│
+│  前台: python3 webserver.py (端口 8080)                     								│
+└────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────┐
-│              traffic-keeper.sh 主循环 (while true)          │
-├─────────────────────────────────────────────────────────────┤
-│  1. reload_env()       - 重新加载 .env 配置                 │
-│  2. fetch_links()      - 检查是否到达抓取间隔，到达则执行   │
-│  3. 选择下载来源       - 优先抓取链接，失败用 DOWNLOAD_URLS │
-│  4. validate_data_file - 检查统计文件有效性（日期切换重置） │
-│  5. check_daily_limit  - 检查是否达到日流量上限             │
-│  6. 执行下载循环 (1~RUN_TIMES_MAX 次)                      │
-│     ├── 随机选择链接（避免重复）                            │
-│     ├── HEAD 请求验证文件大小                               │
-│     ├── curl 下载（限速 + 超时 + 重试）                     │
-│     ├── update_stats() 更新统计                             │
-│     └── 检查日流量上限                                      │
-│  7. 生成统计显示文件                                        │
-│  8. calc_sleep_time() - 计算休眠时间                       │
-│  9. sleep 休眠                                              │
-│  10. 循环                                                   │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│              traffic-keeper.sh 主循环 (while true)         									│
+├────────────────────────────────────────────────────────────┤
+│  1. reload_env()       - 重新加载 .env 配置（GB→字节转换） 								│
+│  2. fetch_links()      - 检查是否到达抓取间隔，到达则执行  								│
+│  3. check_fetched_links - 逐条校验抓取链接（去重+过滤）    							│
+│  4. 选择下载来源       - 优先抓取链接，失败用 DOWNLOAD_URLS 						│
+│  5. validate_data_file - 检查统计文件有效性（日期切换重置） 							│
+│  6. check_daily_limit  - 检查是否达到日流量上限             								│
+│  7. 执行下载循环 (1~RUN_TIMES_MAX 次)                      								│
+│     ├── 随机选择链接（避免连续重复）                        									│
+│     ├── HEAD 请求预检文件大小                               									│
+│     ├── 过小文件跳过                                       										│
+│     ├── curl 下载（限速 + 超时 + 重试）                   									│
+│     ├── update_stats() 更新统计                            									│
+│     └── 检查日流量上限                                      										│
+│  8. 生成统计显示文件 (stats_show)                          									│
+│  9. calc_sleep_time() - 计算休眠时间                      									│
+│ 10. 输出统计摘要 + 休眠                                    										│
+│ 11. 循环                                                   											│
+└────────────────────────────────────────────────────────────┘
 ```
 
 ## 统计数据格式
@@ -401,7 +405,7 @@ http://<NAS_IP>:8080
 mkdir -p /vol2/1000/Docker/traffic-keeper
 cd /vol2/1000/Docker/traffic-keeper
 
-# 从 GitHub 克隆项目文件（使用您自己的仓库地址）
+# 从 GitHub 克隆项目文件
 git clone https://github.com/w5456448820/nas-traffic-keeper.git .
 
 # 执行安装
@@ -478,11 +482,14 @@ docker compose up -d
 - `.env` 文件包含敏感配置，请妥善保管不要泄露
 - Web 管理界面默认绑定 `0.0.0.0:8080`，在内网中可直接访问
 - 如需限制 Web 管理界面访问，请通过飞牛 NAS 的防火墙或路由器 ACL 进行控制
+- 所有 `.env` 中带 * 的配置项单位为 **GB**，Web 界面和 `.env` 中均直接填写数字即可
+- 日志文件 `console.log` 超过 2MB 时自动截断保留最新 500 行
 
 ## 版本历史
 
 | 版本 | 更新内容 |
 |------|----------|
+| 2.7.4 | 统一 GB/Bytes 单位换算规则（traffic-keeper.sh、fetch-links.sh、webserver.py 三方一致）；修复 TiB 换算除数错误（1024³ → 1024⁴）；fetch-links.sh 独立维护单位转换函数；install-traffic-keeper-fnos.sh 自动检测并修复旧配置字节单位错误；webserver.py 历史数据 GB/MB/KB 单位换算修复 |
 | 2.7.3 | Web 界面顶部统计按日期倒序取最新文件（解决统计数据不刷新）；安装脚本缺失文件时自动从 GitHub 下载；.env 写入放弃原子替换避免 Docker volume 文件锁 Resource busy 错误；安装脚本支持飞牛 NAS 目录已有文件的一键安装；新增 stats_show 中文格式文件回退解析 |
 | 2.7.2 | Web 界面统计数据按日期倒序取最新文件；新增 stats_show 文件回退支持；安装脚本缺失文件自动从 GitHub 下载 |
 | 2.7.1 | 新增 Web 管理界面（端口 8080），支持通过 Web 界面配置所有参数、实时查看终端日志；修复安装脚本在目标目录运行时的 cp 自复制问题；修复 apk 安装失败导致容器死循环重启的问题（三镜像源容错+超时机制）；修复 .env 多行格式导致 docker compose 解析失败的问题 |

@@ -1,14 +1,14 @@
 #!/usr/bin/env sh
 # =========================================================
-#  Traffic Keeper - 容器入口脚本
-#  同时启动：1) traffic-keeper.sh 主脚本  2) Web 管理界面
-#  主脚本输出同时写入 /app/data/console.log 供 Web 读取
+#  Traffic Keeper - 容器入口脚本（稳定版）
+#  Version : 2.7.4
+#  核心原则：不在入口用stdbuf（此时coreutils未安装）
 # =========================================================
 set -e
 
 mkdir -p /app/data
 
-# 启动主脚本（后台运行），输出同时 tee 到日志文件和标准输出
+# 启动主脚本（后台运行），输出同时写入日志文件和标准输出
 ( exec /app/traffic-keeper.sh 2>&1 ) | while IFS= read -r line; do
     printf '%s\n' "$line"
     printf '[%s] %s\n' "$(date +%H:%M:%S)" "$line" >> /app/data/console.log
@@ -20,5 +20,5 @@ mkdir -p /app/data
     fi
 done &
 
-# 启动 Web 服务器（前台）
+# 启动 Web 服务器（前台，保证容器不退出）
 exec python3 /app/webserver.py

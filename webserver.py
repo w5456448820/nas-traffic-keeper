@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # =========================================================
 #  Traffic Keeper - Web 管理界面服务器
-#  使用 Python 标准库实现（无需第三方依赖）
-#  Version : 2.7.4
+#  Version : 2.8.0
 #  端口：默认 8080，可通过 .env 的 WEB_PORT 配置
 # =========================================================
 import http.server
@@ -58,10 +57,10 @@ def env_to_dict():
     return result
 
 def write_env(config_dict):
+    quoted_keys = {"USER_AGENT", "DOWNLOAD_URLS"}
     existing_lines = parse_env_lines()
     written = set()
     new_lines = []
-    quoted_keys = {"DOWNLOAD_URLS", "USER_AGENT"}
 
     for line in existing_lines:
         stripped = line.strip()
@@ -95,15 +94,13 @@ def write_env(config_dict):
 
     content = "\n".join(new_lines) + "\n"
     tmp = ENV_FILE + ".tmp"
-    
-    # 直接写入 .env，放弃原子替换（避免 Docker volume / NFS 文件锁冲突）
+
     try:
         with open(ENV_FILE, "w", encoding="utf-8") as f:
             f.write(content)
         return True
     except OSError as e:
-        if e.errno == 16:  # Resource busy
-            # 降级：写入临时文件，由下次 reload_env() 自动加载
+        if e.errno == 16:
             try:
                 with open(tmp, "w", encoding="utf-8") as f:
                     f.write(content)
@@ -113,14 +110,12 @@ def write_env(config_dict):
         return False
 
 def get_stats():
-    """读取今日统计数据"""
     import datetime
     today = datetime.date.today().strftime("%Y-%m-%d")
     data = {"DATE": today, "GENERATE_TIME": "-", "COUNT": "0",
             "SIZE_BYTES": "0", "TIME_SECONDS": "0"}
     stats_dir = "/app/流量统计"
     data_dir = "/app/data"
-    # 1) 优先读取 data/stats_data_*.log，按文件名日期倒序，取最新
     found = False
     try:
         candidates = []
@@ -144,7 +139,6 @@ def get_stats():
     except Exception:
         pass
 
-    # 2) 如果 data/ 下没有读取到，则回退到 流量统计/stats_show_*.log
     if not found:
         try:
             candidates = []
@@ -158,8 +152,6 @@ def get_stats():
                 try:
                     with open(fpath, "r", encoding="utf-8", errors="replace") as f:
                         content = f.read()
-                        # 解析 stats_show 文件中的 key: value 格式
-                        import re
                         m = re.search(r"生成日期\s*[:：]\s*(\S+)", content)
                         if m: data["DATE"] = m.group(1)
                         m = re.search(r"生成时间\s*[:：]\s*(\S+)", content)
@@ -175,10 +167,10 @@ def get_stats():
                     pass
         except Exception:
             pass
-    # 友好展示（仅当尚未解析出人类可读值时）
+
     size_bytes = int(data.get("SIZE_BYTES", "0") or "0")
     if "_SIZE_HUMAN" not in data:
-        for unit, div in [("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)]:
+        for unit, div in [("GB", 1000**3), ("MB", 1000**2), ("KB", 1000)]:
             if size_bytes >= div:
                 data["_SIZE_HUMAN"] = f"{size_bytes/div:.2f} {unit}"
                 break
@@ -186,17 +178,15 @@ def get_stats():
             data["_SIZE_HUMAN"] = f"{size_bytes} B"
     if "_DURATION_HUMAN" not in data:
         dur = int(data.get("TIME_SECONDS", "0") or "0")
-        data["_DURATION_HUMAN"] = f"{dur//60:02d}min {dur%60:02d}s"
+        data["_DURATION_HUMAN"] = f"{dur//3600:02d}:{(dur%3600)//60:02d}:{dur%60:02d}"
     return data
 
 def get_history():
-    """读取所有历史统计数据，按日期倒序"""
     import datetime
     data_dir = "/app/data"
     stats_dir = "/app/流量统计"
     records = []
 
-    # 1) 读取 data/stats_data_*.log
     try:
         if os.path.isdir(data_dir):
             for fname in os.listdir(data_dir):
@@ -210,7 +200,6 @@ def get_history():
                                 if "=" in line and not line.startswith("#"):
                                     k, v = line.split("=", 1)
                                     rec[k.strip()] = v.strip()
-                            # 提取日期
                             date_str = fname.replace("stats_data_", "").replace(".log", "")
                             rec["date"] = date_str
                             records.append(rec)
@@ -219,7 +208,6 @@ def get_history():
     except Exception:
         pass
 
-    # 2) 回退到 流量统计/stats_show_*.log
     try:
         if os.path.isdir(stats_dir):
             for fname in os.listdir(stats_dir):
@@ -229,7 +217,6 @@ def get_history():
                         with open(fpath, "r", encoding="utf-8", errors="replace") as f:
                             content = f.read()
                             rec = {"source": "stats_show", "filename": fname}
-                            # 解析日期
                             m = re.search(r"(\d{4}-\d{2}-\d{2})", fname)
                             if m:
                                 rec["date"] = m.group(1)
@@ -251,11 +238,9 @@ def get_history():
     except Exception:
         pass
 
-    # 按日期倒序
     def get_date(rec):
         return rec.get("date", "")
     records.sort(key=get_date, reverse=True)
-    # 修复：去重同一天的数据（优先使用 stats_show）
     seen_dates = set()
     unique_records = []
     for rec in records:
@@ -265,23 +250,20 @@ def get_history():
         seen_dates.add(date)
         unique_records.append(rec)
     records = unique_records
-    # 修复：对 data 源的记录进行单位换算
     for rec in records:
         if rec.get("source") == "data":
-            # 转换 SIZE_BYTES 为人类可读格式
             size_bytes = int(rec.get("SIZE_BYTES", "0") or "0")
-            if size_bytes >= 1024**3:
-                rec["_SIZE_HUMAN"] = f"{size_bytes/1024**3:.2f} GB"
-            elif size_bytes >= 1024**2:
-                rec["_SIZE_HUMAN"] = f"{size_bytes/1024**2:.2f} MB"
-            elif size_bytes >= 1024:
-                rec["_SIZE_HUMAN"] = f"{size_bytes/1024:.2f} KB"
+            if size_bytes >= 1000**3:
+                rec["_SIZE_HUMAN"] = f"{size_bytes/1000**3:.2f} GB"
+            elif size_bytes >= 1000**2:
+                rec["_SIZE_HUMAN"] = f"{size_bytes/1000**2:.2f} MB"
+            elif size_bytes >= 1000:
+                rec["_SIZE_HUMAN"] = f"{size_bytes/1000:.2f} KB"
             else:
                 rec["_SIZE_HUMAN"] = f"{size_bytes} B"
-            # 转换 TIME_SECONDS 为人类可读格式
             time_seconds = int(rec.get("TIME_SECONDS", "0") or "0")
-            rec["_DURATION_HUMAN"] = f"{time_seconds//60:02d}min {time_seconds%60:02d}s"
-    return records[:100]  # 最多返回100条
+            rec["_DURATION_HUMAN"] = f"{time_seconds//3600:02d}:{(time_seconds%3600)//60:02d}:{time_seconds%60:02d}"
+    return records[:100]
 
 def get_log_tail(limit=1000):
     if not os.path.exists(LOG_FILE):
@@ -293,7 +275,6 @@ def get_log_tail(limit=1000):
     except Exception:
         return []
 
-# -------- HTML 页面模板（含配置管理 + 实时日志） --------
 INDEX_HTML = r"""<!DOCTYPE html>
 <html lang="zh-CN"><head>
 <meta charset="UTF-8">
@@ -386,9 +367,8 @@ const FIELD_META={LIMIT_RATE:{label:"下载限速",type:"text",desc:"如 5M / 50
 SLEEP_MAX:{label:"最大休眠时间(秒)",type:"number",desc:"每轮任务之间最大间隔"},
 SLEEP_MIN:{label:"最小休眠时间(秒)",type:"number",desc:"每轮任务之间最小间隔"},
 DYNAMIC_SLEEP:{label:"动态休眠",type:"select",options:[["true","开启"],["false","关闭"]],desc:"开启后随机在最小/最大之间取值"},
-DYNAMIC_SLEEP_MIN_BYTES:{label:"动态休眠阈值(GB)",type:"number",desc:"单次下载小于此值时本轮不启用动态休眠"},
+ROUND_MIN_BYTES:{label:"本轮最小下载总量(GB)",type:"number",desc:"本轮下载总量低于此值时跳过休眠，0表示不检查"},
 RUN_TIMES_MAX:{label:"每轮最大下载次数",type:"number",desc:"每轮任务最多执行多少次下载"},
-ROUND_MIN_BYTES:{label:"本轮最小下载量(GB)",type:"number",desc:"本轮下载总量低于此值时跳过休眠立即开始下一轮"},
 CONNECT_TIMEOUT:{label:"连接超时(秒)",type:"number",desc:"curl 连接超时时间"},
 MAX_TIME:{label:"单次下载最大时间(秒)",type:"number",desc:"单次下载的最大总时长"},
 RETRY:{label:"重试次数",type:"number",desc:"curl 失败重试次数"},
@@ -415,9 +395,7 @@ loadConfig();updateStats();updateTime();setInterval(updateStats,10000);setInterv
 </script></body></html>
 """
 
-# -------- 日志文件尾行监控（供 SSE 使用） --------
 class LogWatcher:
-    """监控日志文件，发现新行时推送到订阅者"""
     def __init__(self, path):
         self.path = path
         self._fp = None
@@ -427,7 +405,7 @@ class LogWatcher:
     def _open(self):
         try:
             self._fp = open(self.path, "r", encoding="utf-8", errors="replace")
-            self._fp.seek(0, 2)  # 跳到文件末尾
+            self._fp.seek(0, 2)
             try:
                 self._inode = os.fstat(self._fp.fileno()).st_ino
             except Exception:
@@ -437,7 +415,6 @@ class LogWatcher:
             self._inode = None
 
     def check_reopen(self):
-        """如果文件被重建（如被 tail 截断），重新打开"""
         try:
             if not os.path.exists(self.path):
                 self._fp = None
@@ -452,7 +429,6 @@ class LogWatcher:
             pass
 
     def read_new_lines(self):
-        """读取自上次以来新增的行"""
         self.check_reopen()
         if not self._fp:
             return []
@@ -468,7 +444,6 @@ class LogWatcher:
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    # 禁用默认日志输出（避免污染 console.log）
     def log_message(self, format, *args):
         pass
 
@@ -491,7 +466,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        # 解析 URL（去掉查询字符串）
         path = self.path.split("?", 1)[0]
 
         if path == "/" or path == "/index.html":
@@ -517,7 +491,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._send_json({"lines": [], "error": str(e)}, 500)
         elif path == "/api/logs/stream":
-            # SSE 实时日志流
             try:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -526,12 +499,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
 
                 watcher = LogWatcher(LOG_FILE)
-                # 先发一次已有内容
                 for line in get_log_tail(500):
                     self.wfile.write(f"data: {line}\n\n".encode("utf-8"))
                 self.wfile.flush()
 
-                # 轮询新行
                 while True:
                     time.sleep(1.0)
                     lines = watcher.read_new_lines()
@@ -539,7 +510,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         try:
                             self.wfile.write(f"data: {line}\n\n".encode("utf-8"))
                         except Exception:
-                            return  # 连接断开
+                            return
                     if lines:
                         try: self.wfile.flush()
                         except Exception: return

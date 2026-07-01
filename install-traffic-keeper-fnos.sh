@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # =========================================================
 #  Traffic Keeper - FnOS / 飞牛 NAS 一键安装脚本
-#  Version : 2.7.4
+#  Version : 2.8.0
 #  更新内容：
+#    - 统一所有模块版本号为 2.8.0
+#    - 修复 Web 界面配置保存失败（quoted_keys 变量未定义）
+#    - 修复 fetch-links.sh 子进程环境变量继承问题
+#    - 修复 fetch-links.sh sed BRE 语法不兼容 busybox
 #    - 修复 .env 配置项的单位问题（GB vs 字节）
 #    - 增强配置检查逻辑
 #    - 优化错误处理和用户提示
@@ -92,7 +96,7 @@ check_byte_units() {
         local warnings=()
         
         # 检查可能的字节单位配置
-        for field in FETCH_MIN_FILE_BYTES DYNAMIC_SLEEP_MIN_BYTES MAX_DAILY_BYTES; do
+        for field in FETCH_MIN_FILE_BYTES MAX_DAILY_BYTES ROUND_MIN_BYTES; do
             if grep -qE "^${field}=" "$ENV_FILE" 2>/dev/null; then
                 local value=$(grep -E "^${field}=" "$ENV_FILE" | cut -d= -f2 | tr -d '"' | tr -d "'")
                 # 如果值大于 1000 且不是明显的 GB 值（如 1, 2, 200），可能是字节单位
@@ -155,10 +159,7 @@ SLEEP_MIN=60
 # 是否启用动态休眠（true / false）
 DYNAMIC_SLEEP=true
 
-# * 启用动态休眠所需的单次最小下载量（GB）
-DYNAMIC_SLEEP_MIN_BYTES=1
-
-# 本轮下载总量低于此值时跳过动态休眠（GB），0 表示不检查
+# 本轮下载总量低于此值时跳过休眠立即开始下一轮（GB），0 表示不检查
 ROUND_MIN_BYTES=0
 
 # 每轮最多执行下载次数
@@ -183,7 +184,7 @@ FETCH_INTERVAL=21600
 FETCH_MIN_FILE_BYTES=1
 
 # User-Agent
-USER_AGENT='traffic-keeper/2.7.3 curl/8.0'
+USER_AGENT='traffic-keeper/2.8.0 curl/8.0'
 
 # * 单日最大下载量（GB）：200 GB
 MAX_DAILY_BYTES=200

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 主运行脚本
-#  Version : 2.7.4
+#  Version : 2.8.0
 #  彻底修复GB/Bytes/TiB单位换算问题
 # =========================================================
 set -e
@@ -123,7 +123,7 @@ read_var() {
 
 apply_defaults() {
     LIMIT_RATE="${LIMIT_RATE:-5M}"
-    USER_AGENT="${USER_AGENT:-traffic-keeper/2.7.3 curl/8.0}"
+    USER_AGENT="${USER_AGENT:-traffic-keeper/2.8.0 curl/8.0}"
     DYNAMIC_SLEEP="${DYNAMIC_SLEEP:-true}"
     [ "$DYNAMIC_SLEEP" = "false" ] || DYNAMIC_SLEEP=true
 

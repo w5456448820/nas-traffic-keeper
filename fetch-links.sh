@@ -1,11 +1,14 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 独立链接抓取脚本
-#  Version : 2.7.4
+#  Version : 2.8.0
 #  修复：和 traffic-keeper.sh 统一 GB→Bytes 转换规则
 #  配置说明：.env 中 FETCH_MIN_FILE_BYTES 填写 GB 值，0 表示不限制
 # =========================================================
 set -e
+
+# 加载环境变量配置（子进程无法继承父进程的 shell 变量）
+. /app/.env 2>/dev/null || true
 
 BASE_DIR="$(dirname "$0")"
 OUTPUT_FILE="$BASE_DIR/links/fetched-links.txt"
@@ -192,8 +195,8 @@ while IFS= read -r base_url; do
         FULL_URL="$(echo "$FULL_URL" | sed \
             -e 's|/\./|/|g' \
             -e 's|://|://|g' \
-            -e 's|/\+|/|g' \
-            -e 's|\(https\?\):/\|\1://|')"
+            -e 's|/\{1,\}|/|g' \
+            -e 's|\(https\?\):/|\1://|')"
 
         append_if_large_enough "$FULL_URL"
     done < "$FILES_LIST"

@@ -160,7 +160,7 @@ vi /vol2/1000/Docker/traffic-keeper/.env
 | `RETRY_DELAY` | `5` | 秒 | 重试间隔 |
 | `FETCH_INTERVAL` | `21600` | 秒 | 链接抓取间隔（默认 6 小时） |
 | `FETCH_MIN_FILE_BYTES` | `1` | **GB** | 抓取链接的最小文件大小 |
-| `USER_AGENT` | `traffic-keeper/2.7.3 curl/8.0` | - | HTTP User-Agent |
+| `USER_AGENT` | `traffic-keeper/2.8.0 curl/8.0` | - | HTTP User-Agent |
 | `MAX_DAILY_BYTES` | `200` | **GB** | 单日最大下载量 |
 | `DOWNLOAD_URLS` | （多个 ISO 链接） | - | 备用下载链接列表（逗号分隔） |
 | `WEB_PORT` | `8080` | - | Web 管理界面端口 |
@@ -489,6 +489,7 @@ docker compose up -d
 
 | 版本 | 更新内容 |
 |------|----------|
+| 2.8.0 | 修复 Web 界面配置保存失败（webserver.py `quoted_keys` 变量未定义导致 `NameError`）；修复 fetch-links.sh 子进程无法继承父进程环境变量导致 `FETCH_MIN_FILE_BYTES` 配置不生效；修复 fetch-links.sh 中 sed BRE 语法不兼容 busybox（`\|`、`\+` 在 Alpine 下报错）；安装脚本版本号与各模块版本号统一为 2.8.0 |
 | 2.7.4 | 统一 GB/Bytes 单位换算规则（traffic-keeper.sh、fetch-links.sh、webserver.py 三方一致）；修复 TiB 换算除数错误（1024³ → 1024⁴）；fetch-links.sh 独立维护单位转换函数；install-traffic-keeper-fnos.sh 自动检测并修复旧配置字节单位错误；webserver.py 历史数据 GB/MB/KB 单位换算修复 |
 | 2.7.3 | Web 界面顶部统计按日期倒序取最新文件（解决统计数据不刷新）；安装脚本缺失文件时自动从 GitHub 下载；.env 写入放弃原子替换避免 Docker volume 文件锁 Resource busy 错误；安装脚本支持飞牛 NAS 目录已有文件的一键安装；新增 stats_show 中文格式文件回退解析 |
 | 2.7.2 | Web 界面统计数据按日期倒序取最新文件；新增 stats_show 文件回退支持；安装脚本缺失文件自动从 GitHub 下载 |

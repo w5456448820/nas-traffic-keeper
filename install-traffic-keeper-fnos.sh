@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =========================================================
 #  Traffic Keeper - FnOS / 飞牛 NAS 一键安装脚本
-#  Version : 2.8.0
+#  Version : 2.9.0
 #  更新内容：
-#    - 统一所有模块版本号为 2.8.0
+#    - 统一所有模块版本号为 2.9.0
 #    - 修复 Web 界面配置保存失败（quoted_keys 变量未定义）
 #    - 修复 fetch-links.sh 子进程环境变量继承问题
 #    - 修复 fetch-links.sh sed BRE 语法不兼容 busybox
@@ -191,7 +191,7 @@ LINK_CHECK_TIMEOUT=15s
 FETCH_MIN_FILE_BYTES=1G
 
 # User-Agent
-USER_AGENT='traffic-keeper/2.8.0 curl/8.0'
+USER_AGENT='traffic-keeper/2.9.0 curl/8.0'
 
 # 单日最大下载量（支持 K/M/G/T，如 200G, 1T）
 MAX_DAILY_BYTES=200G

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 独立链接抓取脚本
-#  Version : 2.8.0
+#  Version : 2.9.0
 #  更新：支持可选数据单位 K/M/G/T（如 1G, 500M, 10K）
 #  配置说明：.env 中 FETCH_MIN_FILE_BYTES 支持 K/M/G/T 单位，0 表示不限制
 # =========================================================
@@ -16,6 +16,9 @@ FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"  # 默认1G，支持 K/M/G/T 
 
 mkdir -p "$BASE_DIR/links"
 > "$OUTPUT_FILE"
+
+# 记录抓取开始时间
+START_TIME=$(date +%s)
 
 # ==================== 单位转换工具函数（和主脚本完全一致） ====================
 is_uint() {
@@ -73,7 +76,7 @@ remote_file_size_check() {
     [ "$MIN_VALUE" -le 0 ] && return 0  # 0 表示不限制大小
 
     set +e
-    HEAD_OUT="$(curl -IL --connect-timeout 10 --max-time "${LINK_CHECK_TIMEOUT:-30}" --fail -L \
+    HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 30 --fail -L \
         -w "\nHTTP_CODE=%{http_code}\n" "$URL" 2>&1)"
     CURL_EXIT=$?
     set -e
@@ -96,7 +99,7 @@ remote_file_size_check() {
     fi
 
     set +e
-    RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 10 --max-time "${LINK_CHECK_TIMEOUT:-30}" \
+    RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 30 \
         --fail -L -D - -o /dev/null "$URL" 2>&1)"
     CURL_EXIT=$?
     set -e
@@ -222,8 +225,24 @@ mv "${OUTPUT_FILE}.tmp" "$OUTPUT_FILE"
 sort -u "$OUTPUT_FILE" -o "$OUTPUT_FILE"
 
 COUNT="$(wc -l < "$OUTPUT_FILE")"
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+
+# 格式化耗时
+human_duration() {
+    SECS="${1:-0}"
+    is_uint "$SECS" || SECS=0
+    if [ "$SECS" -ge 3600 ]; then
+        printf "%dh%02dm%02ds" "$((SECS / 3600))" "$(((SECS % 3600) / 60))" "$((SECS % 60))"
+    elif [ "$SECS" -ge 60 ]; then
+        printf "%dm%02ds" "$((SECS / 60))" "$((SECS % 60))"
+    else
+        printf "%ds" "$SECS"
+    fi
+}
+
 if [ "$COUNT" -eq 0 ]; then
-    echo "⚠️  警告：未抓取到任何链接"
+    echo "⚠️  警告：未抓取到任何链接（耗时 $(human_duration "$DURATION")）"
 else
-    echo "✅ 抓取完成，共 $COUNT 条链接"
+    echo "✅ 抓取完成，共 $COUNT 条链接，耗时 $(human_duration "$DURATION")"
 fi

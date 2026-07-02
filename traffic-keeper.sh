@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 主运行脚本
-#  Version : 2.8.0
+#  Version : 2.9.0
 #  更新内容：
-#    - 统一所有模块版本号为 2.8.0
+#    - 统一所有模块版本号为 2.9.0
 #    - 支持可选单位：时间(s/m/h)、数据(K/M/G/T)
 # =========================================================
 set -e
@@ -59,6 +59,7 @@ mkdir -p "$DATA_DIR" "$DISPLAY_DIR" /app/links
 
 LAST_URL=""
 FETCH_STAMP="/app/links/.last-fetch"
+LINK_CHECK_STAMP="/app/links/.last-check"
 
 get_today() { date +%F; }
 data_file() { echo "$DATA_DIR/stats_data_$(get_today).log"; }
@@ -153,7 +154,6 @@ apply_defaults() {
     SLEEP_MAX="${SLEEP_MAX:-15m}"
     SLEEP_MIN="${SLEEP_MIN:-1m}"
     DYNAMIC_SLEEP="${DYNAMIC_SLEEP:-true}"
-    DYNAMIC_SLEEP_MIN_BYTES="${DYNAMIC_SLEEP_MIN_BYTES:-1G}"
     ROUND_MIN_BYTES="${ROUND_MIN_BYTES:-0}"
     RUN_TIMES_MAX="${RUN_TIMES_MAX:-3}"
     CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-15s}"
@@ -161,14 +161,13 @@ apply_defaults() {
     RETRY="${RETRY:-5}"
     RETRY_DELAY="${RETRY_DELAY:-5s}"
     FETCH_INTERVAL="${FETCH_INTERVAL:-6h}"
-    LINK_CHECK_TIMEOUT="${LINK_CHECK_TIMEOUT:-15s}"
+    LINK_CHECK_INTERVAL="${LINK_CHECK_INTERVAL:-30m}"
     FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"
     MAX_DAILY_BYTES="${MAX_DAILY_BYTES:-200G}"
-    USER_AGENT="${USER_AGENT:-'traffic-keeper/2.8.0 curl/8.0'}"
+    USER_AGENT="${USER_AGENT:-'traffic-keeper/2.9.0 curl/8.0'}"
     WEB_PORT="${WEB_PORT:-8080}"
-    
+
     # 校验数据量配置（支持 K/M/G/T 可选单位，全部转为字节）
-    DYNAMIC_SLEEP_MIN_BYTES=$(parse_size "$DYNAMIC_SLEEP_MIN_BYTES")
     ROUND_MIN_BYTES=$(parse_size "$ROUND_MIN_BYTES")
     FETCH_MIN_FILE_BYTES=$(parse_size "$FETCH_MIN_FILE_BYTES")
     MAX_DAILY_BYTES=$(parse_size "$MAX_DAILY_BYTES")
@@ -180,7 +179,7 @@ apply_defaults() {
     MAX_TIME=$(parse_time "$MAX_TIME")
     RETRY_DELAY=$(parse_time "$RETRY_DELAY")
     FETCH_INTERVAL=$(parse_time "$FETCH_INTERVAL")
-    LINK_CHECK_TIMEOUT=$(parse_time "$LINK_CHECK_TIMEOUT")
+    LINK_CHECK_INTERVAL=$(parse_time "$LINK_CHECK_INTERVAL")
     
     # 确保都是无符号整数
     is_uint "$RUN_TIMES_MAX" || RUN_TIMES_MAX=3
@@ -189,12 +188,12 @@ apply_defaults() {
     is_uint "$RETRY" || RETRY=5
     is_uint "$RETRY_DELAY" || RETRY_DELAY=5
     is_uint "$FETCH_INTERVAL" || FETCH_INTERVAL=21600
-    is_uint "$LINK_CHECK_TIMEOUT" || LINK_CHECK_TIMEOUT=15
+    is_uint "$LINK_CHECK_INTERVAL" || LINK_CHECK_INTERVAL=1800
     is_uint "$SLEEP_MAX" || SLEEP_MAX=900
     is_uint "$SLEEP_MIN" || SLEEP_MIN=60
     is_uint "$WEB_PORT" || WEB_PORT=8080
     
-    [ "$SLEEP_MIN" -gt "$SLEEP_MAX" ] && SLEEP_MIN=$SLEEP_MAX
+    [ "$SLEEP_MIN" -gt "$SLEEP_MAX" ] && SLEEP_MIN=$SLEEP_MAX || true
 }
 
 reload_env() {
@@ -211,7 +210,6 @@ reload_env() {
     apply_defaults
 
     # 校验数据量配置（支持 K/M/G/T 可选单位，全部转为字节）
-    DYNAMIC_SLEEP_MIN_BYTES=$(parse_size "${DYNAMIC_SLEEP_MIN_BYTES:-0}")
     ROUND_MIN_BYTES=$(parse_size "${ROUND_MIN_BYTES:-0}")
     FETCH_MIN_FILE_BYTES=$(parse_size "${FETCH_MIN_FILE_BYTES:-0}")
     MAX_DAILY_BYTES=$(parse_size "${MAX_DAILY_BYTES:-0}")
@@ -223,6 +221,7 @@ reload_env() {
     MAX_TIME=$(parse_time "${MAX_TIME:-0}")
     RETRY_DELAY=$(parse_time "${RETRY_DELAY:-0}")
     FETCH_INTERVAL=$(parse_time "${FETCH_INTERVAL:-0}")
+    LINK_CHECK_INTERVAL=$(parse_time "${LINK_CHECK_INTERVAL:-0}")
     
     # 确保都是无符号整数
     is_uint "$SLEEP_MAX" || SLEEP_MAX=900
@@ -232,8 +231,9 @@ reload_env() {
     is_uint "$RETRY" || RETRY=5
     is_uint "$RETRY_DELAY" || RETRY_DELAY=5
     is_uint "$FETCH_INTERVAL" || FETCH_INTERVAL=21600
+    is_uint "$LINK_CHECK_INTERVAL" || LINK_CHECK_INTERVAL=1800
     
-    [ "$SLEEP_MIN" -gt "$SLEEP_MAX" ] && SLEEP_MIN=$SLEEP_MAX
+    [ "$SLEEP_MIN" -gt "$SLEEP_MAX" ] && SLEEP_MIN=$SLEEP_MAX || true
 
     echo "✅ 配置已更新（单位已转为字节）"
 }
@@ -377,8 +377,18 @@ should_fetch_links() {
 }
 
 force_fetch_next_round() {
-    rm -f "$FETCH_STAMP"
+    rm -f "$FETCH_STAMP" "$LINK_CHECK_STAMP"
     echo "ℹ️  已标记下一轮重新抓取链接"
+}
+
+should_check_links() {
+    [ -s /app/links/fetched-links.txt ] || return 0
+    [ -f "$LINK_CHECK_STAMP" ] || return 0
+
+    NOW="$(date +%s)"
+    LAST="$(stat -c %Y "$LINK_CHECK_STAMP" 2>/dev/null || echo 0)"
+    AGE="$((NOW - LAST))"
+    [ "$AGE" -ge "$LINK_CHECK_INTERVAL" ]
 }
 
 fetch_links() {
@@ -427,7 +437,7 @@ validate_link() {
     }
 
     set +e
-    HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time "$LINK_CHECK_TIMEOUT" --fail -L \
+    HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 30 --fail -L \
         -A "$USER_AGENT" -w "\nHTTP_CODE=%{http_code}\n" "$URL" 2>&1)"
     CURL_EXIT=$?
     set -e
@@ -451,7 +461,7 @@ validate_link() {
     fi
 
     set +e
-    RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time "$LINK_CHECK_TIMEOUT" \
+    RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 30 \
         --fail -L -A "$USER_AGENT" -D - -o /dev/null "$URL" 2>&1)"
     CURL_EXIT=$?
     set -e
@@ -483,6 +493,11 @@ check_fetched_links() {
     [ -f "$FETCHED_LIST" ] || return 1
     [ -s "$FETCHED_LIST" ] || return 1
 
+    if ! should_check_links; then
+        echo "ℹ️  链接检测未到间隔，跳过本轮检测"
+        return 0
+    fi
+
     > "$VALIDATED_LIST"
     > "$INVALID_LIST"
 
@@ -510,6 +525,7 @@ check_fetched_links() {
         echo "⚠️  检查不通过的链接数：$(wc -l < "$INVALID_LIST")（已排除）"
     fi
     echo "✅ 有效链接数：$(wc -l < "$VALIDATED_LIST")"
+    date +%s > "$LINK_CHECK_STAMP"
     return 0
 }
 
@@ -600,7 +616,7 @@ while true; do
         if [ "$FETCH_MIN_FILE_BYTES" -gt 0 ]; then
             echo "   [下载前] 🔍 正在检查文件大小..."
             set +e
-            HEAD_SIZE="$(curl -IL --connect-timeout 5 --max-time 10 --fail -L \
+            HEAD_SIZE="$(curl -IL --connect-timeout 5 --max-time 30 --fail -L \
                 -A "$USER_AGENT" -w "\nHTTP_CODE=%{http_code}\n" "$URL" 2>&1 \
                 | grep -i '^content-length:' | tail -n 1 | awk '{print $2}' | tr -d '\r')"
             set -e
@@ -664,11 +680,6 @@ while true; do
 
         if [ "$SIZE" -gt 0 ]; then
             echo "   ✅ 下载完成：$(human_bytes "$SIZE") / 耗时 ${TIME}s"
-        fi
-
-        if [ "$SIZE" -gt 0 ] && [ "$DYNAMIC_SLEEP_MIN_BYTES" -gt 0 ] && [ "$SIZE" -lt "$DYNAMIC_SLEEP_MIN_BYTES" ]; then
-            ROUND_SMALL_DOWNLOAD=true
-            echo "ℹ️  单次下载量小于动态休眠阈值，本轮不启用动态休眠"
         fi
 
         [ "$SIZE" -gt 0 ] && update_stats "$SIZE" "$TIME"

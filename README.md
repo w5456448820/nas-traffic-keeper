@@ -159,6 +159,7 @@ vi /vol2/1000/Docker/traffic-keeper/.env
 | `RETRY` | `5` | - | curl 重试次数 |
 | `RETRY_DELAY` | `5s` | 时间 | 重试间隔（支持 s/m/h） |
 | `FETCH_INTERVAL` | `6h` | 时间 | 链接抓取间隔（支持 s/m/h） |
+| `LINK_CHECK_TIMEOUT` | `15s` | 时间 | HEAD请求验证链接的最大时间（支持 s/m/h） |
 | `FETCH_MIN_FILE_BYTES` | `1G` | 数据 | 抓取链接的最小文件大小（支持 K/M/G/T） |
 | `USER_AGENT` | `traffic-keeper/2.8.0 curl/8.0` | - | HTTP User-Agent |
 | `MAX_DAILY_BYTES` | `200G` | 数据 | 单日最大下载量（支持 K/M/G/T） |

@@ -368,7 +368,7 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 const GROUPS=[
 {title:"时间设置",keys:["SLEEP_MIN","SLEEP_MAX","CONNECT_TIMEOUT","MAX_TIME","RETRY_DELAY","FETCH_INTERVAL"]},
 {title:"数据设置",keys:["LIMIT_RATE","DYNAMIC_SLEEP_MIN_BYTES","ROUND_MIN_BYTES","FETCH_MIN_FILE_BYTES","MAX_DAILY_BYTES"]},
-{title:"网络连接",keys:["RUN_TIMES_MAX","RETRY","USER_AGENT"]},
+{title:"网络连接",keys:["RUN_TIMES_MAX","RETRY","LINK_CHECK_TIMEOUT","USER_AGENT"]},
 {title:"下载源",keys:["DOWNLOAD_URLS"]},
 {title:"系统设置",keys:["DYNAMIC_SLEEP","WEB_PORT"]}
 ];
@@ -380,6 +380,7 @@ DYNAMIC_SLEEP:{label:"动态休眠",type:"select",options:[["true","开启"],["f
 DYNAMIC_SLEEP_MIN_BYTES:{label:"动态休眠最小下载量",type:"text",desc:"支持 K/M/G/T 单位，如 1G / 500M",unit:"size"},
 ROUND_MIN_BYTES:{label:"本轮最小下载总量",type:"text",desc:"支持 K/M/G/T 单位，如 1G / 500M，0表示不检查",unit:"size"},
 RUN_TIMES_MAX:{label:"每轮最大下载次数",type:"number",desc:"每轮任务最多执行多少次下载"},
+LINK_CHECK_TIMEOUT:{label:"链接检测超时",type:"text",desc:"HEAD请求验证链接的最大时间，支持 s/m/h 单位，如 15s / 1m",unit:"time"},
 CONNECT_TIMEOUT:{label:"连接超时",type:"text",desc:"支持 s/m/h 单位，如 15s / 1m",unit:"time"},
 MAX_TIME:{label:"单次下载最大时间",type:"text",desc:"支持 s/m/h 单位，如 50m / 1h",unit:"time"},
 RETRY:{label:"重试次数",type:"number",desc:"curl 失败重试次数"},

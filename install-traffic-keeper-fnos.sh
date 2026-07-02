@@ -184,6 +184,9 @@ RETRY_DELAY=5s
 # 链接抓取间隔（支持 s/m/h，如 6h, 30m）
 FETCH_INTERVAL=6h
 
+# 链接检测超时（支持 s/m/h，如 15s, 1m）
+LINK_CHECK_TIMEOUT=15s
+
 # 抓取链接的最小文件大小（支持 K/M/G/T，如 1G, 500M）
 FETCH_MIN_FILE_BYTES=1G
 

@@ -161,6 +161,7 @@ apply_defaults() {
     RETRY="${RETRY:-5}"
     RETRY_DELAY="${RETRY_DELAY:-5s}"
     FETCH_INTERVAL="${FETCH_INTERVAL:-6h}"
+    LINK_CHECK_TIMEOUT="${LINK_CHECK_TIMEOUT:-15s}"
     FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"
     MAX_DAILY_BYTES="${MAX_DAILY_BYTES:-200G}"
     USER_AGENT="${USER_AGENT:-'traffic-keeper/2.8.0 curl/8.0'}"
@@ -179,6 +180,7 @@ apply_defaults() {
     MAX_TIME=$(parse_time "$MAX_TIME")
     RETRY_DELAY=$(parse_time "$RETRY_DELAY")
     FETCH_INTERVAL=$(parse_time "$FETCH_INTERVAL")
+    LINK_CHECK_TIMEOUT=$(parse_time "$LINK_CHECK_TIMEOUT")
     
     # 确保都是无符号整数
     is_uint "$RUN_TIMES_MAX" || RUN_TIMES_MAX=3
@@ -187,6 +189,7 @@ apply_defaults() {
     is_uint "$RETRY" || RETRY=5
     is_uint "$RETRY_DELAY" || RETRY_DELAY=5
     is_uint "$FETCH_INTERVAL" || FETCH_INTERVAL=21600
+    is_uint "$LINK_CHECK_TIMEOUT" || LINK_CHECK_TIMEOUT=15
     is_uint "$SLEEP_MAX" || SLEEP_MAX=900
     is_uint "$SLEEP_MIN" || SLEEP_MIN=60
     is_uint "$WEB_PORT" || WEB_PORT=8080
@@ -424,7 +427,7 @@ validate_link() {
     }
 
     set +e
-    HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 15 --fail -L \
+    HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time "$LINK_CHECK_TIMEOUT" --fail -L \
         -A "$USER_AGENT" -w "\nHTTP_CODE=%{http_code}\n" "$URL" 2>&1)"
     CURL_EXIT=$?
     set -e
@@ -448,7 +451,7 @@ validate_link() {
     fi
 
     set +e
-    RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 15 \
+    RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time "$LINK_CHECK_TIMEOUT" \
         --fail -L -A "$USER_AGENT" -D - -o /dev/null "$URL" 2>&1)"
     CURL_EXIT=$?
     set -e

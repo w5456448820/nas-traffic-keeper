@@ -73,7 +73,7 @@ remote_file_size_check() {
     [ "$MIN_VALUE" -le 0 ] && return 0  # 0 表示不限制大小
 
     set +e
-    HEAD_OUT="$(curl -IL --connect-timeout 10 --max-time 30 --fail -L \
+    HEAD_OUT="$(curl -IL --connect-timeout 10 --max-time "${LINK_CHECK_TIMEOUT:-30}" --fail -L \
         -w "\nHTTP_CODE=%{http_code}\n" "$URL" 2>&1)"
     CURL_EXIT=$?
     set -e
@@ -96,7 +96,7 @@ remote_file_size_check() {
     fi
 
     set +e
-    RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 10 --max-time 30 \
+    RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 10 --max-time "${LINK_CHECK_TIMEOUT:-30}" \
         --fail -L -D - -o /dev/null "$URL" 2>&1)"
     CURL_EXIT=$?
     set -e

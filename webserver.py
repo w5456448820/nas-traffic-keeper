@@ -282,113 +282,134 @@ INDEX_HTML = r"""<!DOCTYPE html>
 <title>Traffic Keeper 管理界面</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px}
+body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f5;min-height:100vh;padding:20px}
 .container{max-width:1200px;margin:0 auto}
-.header{color:#fff;text-align:center;padding:20px 0 30px}
-.header h1{font-size:28px;margin-bottom:8px}
-.header .sub{opacity:.9;font-size:14px}
-.panel{background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.2);margin-bottom:20px;overflow:hidden}
-.panel-header{padding:18px 24px;background:#f8f9fa;border-bottom:1px solid #e9ecef}
-.panel-header h2{font-size:18px;color:#333}
-.panel-body{padding:24px}
-.tabs{display:flex;gap:10px;margin-bottom:20px;border-bottom:2px solid #e9ecef}
-.tab{padding:10px 20px;border:none;background:none;cursor:pointer;font-size:14px;color:#666;border-bottom:3px solid transparent;margin-bottom:-2px}
-.tab:hover{color:#667eea}
-.tab.active{color:#667eea;border-bottom-color:#667eea;font-weight:600}
+.header{text-align:center;padding:24px 0 16px}
+.header h1{font-size:32px;color:#1a1a2e;margin-bottom:4px;letter-spacing:-.5px}
+.header .version{display:inline-block;background:#667eea;color:#fff;font-size:12px;padding:2px 10px;border-radius:12px;margin-bottom:8px}
+.header .sub{color:#666;font-size:14px}
+.stats-panel{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:20px;padding:20px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px}
+.stat-card{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:18px;border-radius:10px;text-align:center}
+.stat-card .label{font-size:12px;opacity:.85;margin-bottom:6px}
+.stat-card .value{font-size:22px;font-weight:700}
+.main-panel{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);overflow:hidden}
+.panel-body{padding:20px}
+.tabs{display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid #e9ecef;padding-bottom:0}
+.tab{padding:10px 20px;border:none;background:none;cursor:pointer;font-size:14px;color:#666;border-bottom:3px solid transparent;margin-bottom:-2px;border-radius:4px 4px 0 0}
+.tab:hover{color:#667eea;background:#f8f9fa}
+.tab.active{color:#667eea;border-bottom-color:#667eea;font-weight:600;background:#f8f9fa}
 .tab-content{display:none}
 .tab-content.active{display:block}
-.config-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-.config-item{background:#f8f9fa;padding:16px;border-radius:8px;border-left:4px solid #667eea}
-.config-item label{display:block;font-weight:600;color:#333;margin-bottom:8px;font-size:13px}
-.config-item input,.config-item select,.config-item textarea{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;font-family:inherit}
-.config-item textarea{font-family:"Courier New",monospace;min-height:80px;resize:vertical}
+.config-section{margin-bottom:24px}
+.config-section-title{font-size:15px;font-weight:600;color:#333;margin-bottom:12px;padding-left:8px;border-left:3px solid #667eea}
+.config-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.config-item{background:#f8f9fa;padding:14px;border-radius:8px;border:1px solid #e9ecef}
+.config-item label{display:block;font-weight:600;color:#333;margin-bottom:6px;font-size:13px}
+.config-item input,.config-item select,.config-item textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;font-family:inherit;background:#fff}
+.config-item textarea{font-family:"Courier New",monospace;min-height:70px;resize:vertical}
 .config-item input:focus,.config-item select:focus,.config-item textarea:focus{outline:none;border-color:#667eea}
-.config-item .desc{margin-top:6px;font-size:12px;color:#888;line-height:1.5}
-.btn{padding:10px 24px;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600}
+.config-item .desc{margin-top:4px;font-size:11px;color:#888;line-height:1.4}
+.config-item .convert-hint{margin-top:4px;font-size:11px;color:#667eea;font-weight:500}
+.btn{padding:10px 20px;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;transition:opacity .2s}
+.btn:hover{opacity:.85}
 .btn-primary{background:#667eea;color:#fff}
-.btn-primary:hover{background:#5568d3}
 .btn-secondary{background:#e9ecef;color:#495057}
-.btn-secondary:hover{background:#dee2e6}
-.log-container{background:#1e1e1e;border-radius:8px;padding:16px;height:500px;overflow-y:auto;font-family:Consolas,Monaco,"Courier New",monospace;font-size:13px;line-height:1.6;color:#d4d4d4;white-space:pre-wrap;word-break:break-all}
+.actions{margin-top:20px;padding-top:16px;border-top:1px solid #e9ecef;display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
+.hint{color:#888;font-size:12px;margin-right:auto}
+.log-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.log-search{flex:1;min-width:200px;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px}
+.log-search:focus{outline:none;border-color:#667eea}
+.log-container{background:#1e1e1e;border-radius:8px;padding:16px;height:480px;overflow-y:auto;font-family:Consolas,Monaco,"Courier New",monospace;font-size:13px;line-height:1.6;color:#d4d4d4;white-space:pre-wrap;word-break:break-all}
 .log-container::-webkit-scrollbar{width:8px}
 .log-container::-webkit-scrollbar-thumb{background:#555;border-radius:4px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
-.stat-card{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:20px;border-radius:10px}
-.stat-card .label{font-size:13px;opacity:.9;margin-bottom:8px}
-.stat-card .value{font-size:20px;font-weight:700;word-break:break-all}
+.log-line{padding:1px 0}
+.log-line.hidden{display:none}
 .toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;font-size:14px;z-index:1000;opacity:0;transform:translateX(100px);transition:all .3s}
 .toast.show{opacity:1;transform:translateX(0)}
 .toast.success{background:#28a745}
 .toast.error{background:#dc3545}
-@media(max-width:768px){.config-grid{grid-template-columns:1fr}}
 .history-table{width:100%;border-collapse:collapse;font-size:13px}
 .history-table th,.history-table td{padding:10px 12px;text-align:left;border-bottom:1px solid #e9ecef}
 .history-table th{background:#f8f9fa;font-weight:600;color:#333}
 .history-table tr:hover{background:#f8f9fa}
 .history-empty{text-align:center;color:#888;padding:40px}
+@media(max-width:768px){.config-grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
 <div class="container">
-<div class="header"><h1>🚀 Traffic Keeper 管理界面</h1>
+<div class="header"><div class="version">v2.8.0</div><h1>Traffic Keeper</h1>
 <div class="sub">飞牛 NAS 流量平衡脚本 | <span id="server-time"></span></div></div>
-<div class="panel"><div class="panel-body">
-<div class="stats" id="stats-box">
+<div class="stats-panel"><div class="stats" id="stats-box">
 <div class="stat-card"><div class="label">生成日期</div><div class="value" id="stat-date">-</div></div>
 <div class="stat-card"><div class="label">生成时间</div><div class="value" id="stat-time">-</div></div>
 <div class="stat-card"><div class="label">下载次数</div><div class="value" id="stat-count">-</div></div>
 <div class="stat-card"><div class="label">下载流量</div><div class="value" id="stat-size">-</div></div>
 <div class="stat-card"><div class="label">累计耗时</div><div class="value" id="stat-dur">-</div></div>
-</div></div></div>
-<div class="panel"><div class="panel-body">
+</div></div>
+<div class="main-panel"><div class="panel-body">
 <div class="tabs">
-<button class="tab active" data-tab="config">⚙️ 配置管理</button>
-<button class="tab" data-tab="logs">📜 终端日志</button>
-<button class="tab" data-tab="history">📊 历史数据</button></div>
-<div class="tab-content active" id="tab-config">
-<form id="config-form" class="config-grid"></form>
-<div style="margin-top:20px;text-align:right">
-<button type="button" class="btn btn-secondary" onclick="loadConfig()">🔄 重新读取</button>
-<button type="button" class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button></div>
-<div style="margin-top:12px;font-size:12px;color:#888">💡 配置保存后，下一轮任务循环自动生效（无需重启容器）</div></div>
+<button class="tab active" data-tab="config">配置管理</button>
+<button class="tab" data-tab="logs">终端日志</button>
+<button class="tab" data-tab="history">历史数据</button></div>
+<div class="tab-content active" id="tab-config"></div>
 <div class="tab-content" id="tab-logs">
-<div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-<button type="button" class="btn btn-secondary" onclick="toggleAutoScroll()" id="scroll-btn">🔽 自动滚动</button>
-<button type="button" class="btn btn-secondary" onclick="clearLogs()">🗑️ 清空显示</button>
-<span style="font-size:12px;color:#888">实时显示终端输出</span></div>
+<div class="log-toolbar">
+<input type="text" class="log-search" id="log-search" placeholder="搜索日志..." oninput="filterLogs()">
+<button type="button" class="btn btn-secondary" onclick="toggleAutoScroll()" id="scroll-btn">自动滚动</button>
+<button type="button" class="btn btn-secondary" onclick="clearLogs()">清空显示</button></div>
 <div class="log-container" id="log-container"></div></div>
 <div class="tab-content" id="tab-history">
-<div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-<button type="button" class="btn btn-secondary" onclick="loadHistory()">🔄 刷新</button>
-<span style="font-size:12px;color:#888">显示最近100条历史记录</span></div>
+<div style="margin-bottom:12px"><button type="button" class="btn btn-secondary" onclick="loadHistory()">刷新</button>
+<span style="font-size:12px;color:#888;margin-left:8px">显示最近100条历史记录</span></div>
 <div id="history-table" style="overflow-x:auto"></div></div>
 </div></div></div>
 <div class="toast" id="toast"></div>
 <script>
-const FIELD_META={LIMIT_RATE:{label:"下载限速",type:"text",desc:"如 5M / 500K / 1G，留空或 0 表示不限速"},
-SLEEP_MAX:{label:"最大休眠时间",type:"text",desc:"支持 s/m/h 单位，如 15m / 1h / 30s，纯数字默认秒"},
-SLEEP_MIN:{label:"最小休眠时间",type:"text",desc:"支持 s/m/h 单位，如 1m / 30s，纯数字默认秒"},
+const GROUPS=[
+{title:"时间设置",keys:["SLEEP_MIN","SLEEP_MAX","CONNECT_TIMEOUT","MAX_TIME","RETRY_DELAY","FETCH_INTERVAL"]},
+{title:"数据设置",keys:["LIMIT_RATE","DYNAMIC_SLEEP_MIN_BYTES","ROUND_MIN_BYTES","FETCH_MIN_FILE_BYTES","MAX_DAILY_BYTES"]},
+{title:"网络连接",keys:["RUN_TIMES_MAX","RETRY","USER_AGENT"]},
+{title:"下载源",keys:["DOWNLOAD_URLS"]},
+{title:"系统设置",keys:["DYNAMIC_SLEEP","WEB_PORT"]}
+];
+const FIELD_META={
+LIMIT_RATE:{label:"下载限速",type:"text",desc:"如 5M / 500K / 1G，留空或 0 表示不限速",unit:"rate"},
+SLEEP_MAX:{label:"最大休眠时间",type:"text",desc:"支持 s/m/h 单位，如 15m / 1h / 30s",unit:"time"},
+SLEEP_MIN:{label:"最小休眠时间",type:"text",desc:"支持 s/m/h 单位，如 1m / 30s",unit:"time"},
 DYNAMIC_SLEEP:{label:"动态休眠",type:"select",options:[["true","开启"],["false","关闭"]],desc:"开启后随机在最小/最大之间取值"},
-ROUND_MIN_BYTES:{label:"本轮最小下载总量",type:"text",desc:"支持 K/M/G/T 单位，如 1G / 500M，纯数字默认字节"},
+DYNAMIC_SLEEP_MIN_BYTES:{label:"动态休眠最小下载量",type:"text",desc:"支持 K/M/G/T 单位，如 1G / 500M",unit:"size"},
+ROUND_MIN_BYTES:{label:"本轮最小下载总量",type:"text",desc:"支持 K/M/G/T 单位，如 1G / 500M，0表示不检查",unit:"size"},
 RUN_TIMES_MAX:{label:"每轮最大下载次数",type:"number",desc:"每轮任务最多执行多少次下载"},
-CONNECT_TIMEOUT:{label:"连接超时",type:"text",desc:"支持 s/m/h 单位，如 15s / 1m，纯数字默认秒"},
-MAX_TIME:{label:"单次下载最大时间",type:"text",desc:"支持 s/m/h 单位，如 50m / 1h，纯数字默认秒"},
+CONNECT_TIMEOUT:{label:"连接超时",type:"text",desc:"支持 s/m/h 单位，如 15s / 1m",unit:"time"},
+MAX_TIME:{label:"单次下载最大时间",type:"text",desc:"支持 s/m/h 单位，如 50m / 1h",unit:"time"},
 RETRY:{label:"重试次数",type:"number",desc:"curl 失败重试次数"},
-RETRY_DELAY:{label:"重试间隔",type:"text",desc:"支持 s/m/h 单位，如 5s / 1m，纯数字默认秒"},
-FETCH_INTERVAL:{label:"链接抓取间隔",type:"text",desc:"支持 s/m/h 单位，如 6h / 30m，纯数字默认秒"},
-FETCH_MIN_FILE_BYTES:{label:"最小文件大小",type:"text",desc:"支持 K/M/G/T 单位，如 1G / 500M，纯数字默认字节"},
+RETRY_DELAY:{label:"重试间隔",type:"text",desc:"支持 s/m/h 单位，如 5s / 1m",unit:"time"},
+FETCH_INTERVAL:{label:"链接抓取间隔",type:"text",desc:"支持 s/m/h 单位，如 6h / 30m",unit:"time"},
+FETCH_MIN_FILE_BYTES:{label:"最小文件大小",type:"text",desc:"支持 K/M/G/T 单位，如 1G / 500M",unit:"size"},
 USER_AGENT:{label:"User-Agent",type:"text",desc:"HTTP 请求标识"},
-MAX_DAILY_BYTES:{label:"单日最大下载量",type:"text",desc:"支持 K/M/G/T 单位，如 200G / 1T，纯数字默认字节"},
-DOWNLOAD_URLS:{label:"下载链接列表",type:"textarea",desc:"多个链接用英文逗号分隔"}};
+MAX_DAILY_BYTES:{label:"单日最大下载量",type:"text",desc:"支持 K/M/G/T 单位，如 200G / 1T",unit:"size"},
+DOWNLOAD_URLS:{label:"下载链接列表",type:"textarea",desc:"多个链接用英文逗号分隔"},
+WEB_PORT:{label:"Web 端口",type:"number",desc:"管理界面端口，需与 docker-compose 一致"}
+};
+function parseTime(v){const m=String(v).trim().match(/^(\d+)\s*([smh]?)$/i);if(!m)return null;const n=parseInt(m[1]),u=m[2].toLowerCase();if(u==='h')return n*3600;if(u==='m')return n*60;return n}
+function parseSize(v){const m=String(v).trim().match(/^(\d+)\s*([KMGTkmgt]?[iI]?[bB]?)?$/);if(!m)return null;const n=parseInt(m[1]);const u=(m[2]||'').toLowerCase().charAt(0);const mul={t:1099511627776,g:1073741824,m:1048576,k:1024};return n*(mul[u]||1)}
+function fmtSize(b){if(b>=1099511627776)return(b/1099511627776).toFixed(2)+' TiB';if(b>=1073741824)return(b/1073741824).toFixed(2)+' GiB';if(b>=1048576)return(b/1048576).toFixed(2)+' MiB';if(b>=1024)return(b/1024).toFixed(2)+' KiB';return b+' B'}
+function fmtTime(s){if(s>=3600){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h+'h '+m+'m';}if(s>=60){return Math.floor(s/60)+'m '+s%60+'s';}return s+'s'}
+function unitHint(key,val){const m=FIELD_META[key];if(!m||!m.unit||!val)return'';if(m.unit==='time'){const s=parseTime(val);if(s!==null)return'<div class="convert-hint">= '+fmtTime(s)+'</div>'}if(m.unit==='size'){const b=parseSize(val);if(b!==null)return'<div class="convert-hint">= '+fmtSize(b)+'</div>'}return''}
 document.querySelectorAll('.tab').forEach(b=>{b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('tab-'+b.dataset.tab).classList.add('active');if(b.dataset.tab==='logs')startLogStream();}});
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function renderConfig(cfg){const f=document.getElementById('config-form');f.innerHTML='';for(const key of Object.keys(FIELD_META)){const m=FIELD_META[key];const v=cfg[key]!==undefined?cfg[key]:'';const item=document.createElement('div');item.className='config-item';let ih='';if(m.type==='textarea'){ih=`<textarea name="${key}">${escapeHtml(v)}</textarea>`}else if(m.type==='select'){const opts=m.options.map(([o,l])=>`<option value="${escapeHtml(o)}"${o===v?' selected':''}>${escapeHtml(l)}</option>`).join('');ih=`<select name="${key}">${opts}</select>`}else{ih=`<input type="${m.type}" name="${key}" value="${escapeHtml(v)}">`}item.innerHTML=`<label>${m.label}</label>${ih}<div class="desc">${m.desc}</div>`;f.appendChild(item)}}
+function renderConfig(cfg){const box=document.getElementById('tab-config');box.innerHTML='';GROUPS.forEach(g=>{const section=document.createElement('div');section.className='config-section';let html='<div class="config-section-title">'+escapeHtml(g.title)+'</div><div class="config-grid">';g.keys.forEach(key=>{const m=FIELD_META[key];if(!m)return;const v=cfg[key]!==undefined?cfg[key]:'';html+='<div class="config-item">';html+='<label>'+escapeHtml(m.label)+'</label>';if(m.type==='textarea'){html+='<textarea name="'+key+'" oninput="updateHint(this)">'+escapeHtml(v)+'</textarea>'}else if(m.type==='select'){html+='<select name="'+key+'">'+m.options.map(([o,l])=>'<option value="'+escapeHtml(o)+'"'+(o===v?' selected':'')+'>'+escapeHtml(l)+'</option>').join('')+'</select>'}else{html+='<input type="'+m.type+'" name="'+key+'" value="'+escapeHtml(v)+'" oninput="updateHint(this)">'}html+=unitHint(key,v);html+='<div class="desc">'+escapeHtml(m.desc)+'</div></div>'});html+='</div>';section.innerHTML=html;box.appendChild(section)});const actions=document.createElement('div');actions.className='actions';actions.innerHTML='<span class="hint">配置保存后，下一轮任务循环自动生效（无需重启容器）</span><button type="button" class="btn btn-secondary" onclick="loadConfig()">重新读取</button><button type="button" class="btn btn-primary" onclick="saveConfig()">保存配置</button>';box.appendChild(actions)}
+function updateHint(el){const key=el.name;const hintEl=el.parentElement.querySelector('.convert-hint');if(hintEl)hintEl.outerHTML=unitHint(key,el.value)}
 function loadConfig(){fetch('/api/config').then(r=>r.json()).then(d=>{renderConfig(d);showToast('配置已重新读取','success')}).catch(e=>showToast('读取失败: '+e,'error'))}
-function saveConfig(){const f=document.getElementById('config-form');const inputs=f.querySelectorAll('input,select,textarea');const data={};inputs.forEach(el=>{data[el.name]=el.value});fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).then(res=>{if(res.success)showToast('✅ 配置保存成功！下一轮任务自动生效','success');else showToast('保存失败: '+(res.error||'未知错误'),'error')}).catch(e=>showToast('保存失败: '+e,'error'))}
+function saveConfig(){const f=document.getElementById('tab-config');const inputs=f.querySelectorAll('input,select,textarea');const data={};inputs.forEach(el=>{data[el.name]=el.value});fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).then(res=>{if(res.success)showToast('配置保存成功！下一轮任务自动生效','success');else showToast('保存失败: '+(res.error||'未知错误'),'error')}).catch(e=>showToast('保存失败: '+e,'error'))}
 function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+type;setTimeout(()=>t.classList.add('show'),10);setTimeout(()=>t.classList.remove('show'),3000)}
 function updateStats(){fetch('/api/stats').then(r=>r.json()).then(d=>{document.getElementById('stat-date').textContent=d.DATE||'-';document.getElementById('stat-time').textContent=d.GENERATE_TIME||'-';document.getElementById('stat-count').textContent=d.COUNT||'0';document.getElementById('stat-size').textContent=d._SIZE_HUMAN||'-';document.getElementById('stat-dur').textContent=d._DURATION_HUMAN||'-';}).catch(()=>{})}
-let logContainer,autoScroll=true,eventSource=null;
-function toggleAutoScroll(){autoScroll=!autoScroll;document.getElementById('scroll-btn').textContent=autoScroll?'🔽 自动滚动':'⏸ 已暂停滚动'}
-function startLogStream(){if(eventSource)return;logContainer=document.getElementById('log-container');fetch('/api/logs').then(r=>r.json()).then(d=>{logContainer.textContent=d.lines.join('\n');if(autoScroll)logContainer.scrollTop=logContainer.scrollHeight});try{eventSource=new EventSource('/api/logs/stream');eventSource.onmessage=(e)=>{if(!logContainer.textContent)logContainer.textContent=e.data;else logContainer.textContent+='\n'+e.data;if(autoScroll)logContainer.scrollTop=logContainer.scrollHeight};eventSource.onerror=()=>{setTimeout(()=>{if(eventSource){eventSource.close();eventSource=null}},2000)}}catch(e){console.error(e)}}
-function clearLogs(){document.getElementById('log-container').textContent=''}
+let autoScroll=true,eventSource=null,allLogLines=[];
+function toggleAutoScroll(){autoScroll=!autoScroll;document.getElementById('scroll-btn').textContent=autoScroll?'自动滚动':'已暂停'}
+function filterLogs(){const q=document.getElementById('log-search').value.trim().toLowerCase();document.querySelectorAll('.log-line').forEach(line=>{line.classList.toggle('hidden',q&&!line.textContent.toLowerCase().includes(q))})}
+function renderLogs(lines){const c=document.getElementById('log-container');const q=document.getElementById('log-search').value.trim().toLowerCase();c.innerHTML=lines.map(line=>{const cls=q&&!line.toLowerCase().includes(q)?'log-line hidden':'log-line';return'<div class="'+cls+'">'+escapeHtml(line)+'</div>'}).join('');if(autoScroll)c.scrollTop=c.scrollHeight}
+function startLogStream(){if(eventSource)return;const c=document.getElementById('log-container');fetch('/api/logs').then(r=>r.json()).then(d=>{allLogLines=d.lines;renderLogs(allLogLines)});try{eventSource=new EventSource('/api/logs/stream');eventSource.onmessage=(e)=>{allLogLines.push(e.data);const q=document.getElementById('log-search').value.trim().toLowerCase();const div=document.createElement('div');div.className='log-line';if(q&&!e.data.toLowerCase().includes(q))div.classList.add('hidden');div.textContent=e.data;c.appendChild(div);if(autoScroll)c.scrollTop=c.scrollHeight};eventSource.onerror=()=>{setTimeout(()=>{if(eventSource){eventSource.close();eventSource=null}},2000)}}catch(e){console.error(e)}}
+function clearLogs(){document.getElementById('log-container').innerHTML='';allLogLines=[]}
 function loadHistory(){fetch('/api/history').then(r=>r.json()).then(d=>{const box=document.getElementById('history-table');if(!d.records||d.records.length===0){box.innerHTML='<div class="history-empty">暂无历史数据</div>';return}let html='<table class="history-table"><thead><tr><th>日期</th><th>生成时间</th><th>下载次数</th><th>下载流量</th><th>累计耗时</th></tr></thead><tbody>';d.records.forEach(r=>{html+='<tr>';html+='<td>'+escapeHtml(r.date||'-')+'</td>';html+='<td>'+escapeHtml(r.GENERATE_TIME||'-')+'</td>';html+='<td>'+escapeHtml(r.COUNT||'0')+'</td>';html+='<td>'+escapeHtml(r._SIZE_HUMAN||'-')+'</td>';html+='<td>'+escapeHtml(r._DURATION_HUMAN||'-')+'</td>';html+='</tr>'});html+='</tbody></table>';box.innerHTML=html}).catch(e=>{document.getElementById('history-table').innerHTML='<div class="history-empty">加载失败: '+escapeHtml(e.message)+'</div>'})}
 function updateTime(){document.getElementById('server-time').textContent=new Date().toLocaleString('zh-CN')}
 loadConfig();updateStats();updateTime();setInterval(updateStats,10000);setInterval(updateTime,1000);

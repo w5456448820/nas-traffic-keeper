@@ -144,50 +144,54 @@ if [ "$need_write_env" = true ]; then
 #  可通过 Web 界面（http://<NAS_IP>:8080）修改
 #  修改后无需重启容器，下一轮任务循环会自动重新加载
 #
-#  注意：以下带 * 的字段单位为 GB（不是字节）
+#  时间单位可选：s（秒）、m（分）、h（时），纯数字默认秒
+#  数据单位可选：K、M、G、T（1024进制），纯数字默认字节
 # =========================================================
 
 # 下载限速（K/M/G），0 或留空表示不限速
 LIMIT_RATE=5M
 
-# 每轮任务最大休眠时间（秒）
-SLEEP_MAX=900
+# 每轮任务最大休眠时间（支持 s/m/h，如 15m, 1h, 30s）
+SLEEP_MAX=15m
 
-# 每轮任务最小休眠时间（秒）
-SLEEP_MIN=60
+# 每轮任务最小休眠时间（支持 s/m/h，如 1m, 30s）
+SLEEP_MIN=1m
 
 # 是否启用动态休眠（true / false）
 DYNAMIC_SLEEP=true
 
-# 本轮下载总量低于此值时跳过休眠立即开始下一轮（GB），0 表示不检查
+# 启用动态休眠所需的单次最小下载量（支持 K/M/G/T，如 1G, 500M）
+DYNAMIC_SLEEP_MIN_BYTES=1G
+
+# 本轮下载总量低于此值时跳过动态休眠（支持 K/M/G/T），0 表示不检查
 ROUND_MIN_BYTES=0
 
 # 每轮最多执行下载次数
 RUN_TIMES_MAX=3
 
-# 连接超时（秒）
-CONNECT_TIMEOUT=15
+# 连接超时（支持 s/m/h，如 15s, 1m）
+CONNECT_TIMEOUT=15s
 
-# 单次下载最大时间（秒）
-MAX_TIME=3000
+# 单次下载最大时间（支持 s/m/h，如 50m, 1h）
+MAX_TIME=50m
 
 # curl 重试次数
 RETRY=5
 
-# 重试间隔（秒）
-RETRY_DELAY=5
+# 重试间隔（支持 s/m/h，如 5s, 1m）
+RETRY_DELAY=5s
 
-# 链接抓取间隔（秒）
-FETCH_INTERVAL=21600
+# 链接抓取间隔（支持 s/m/h，如 6h, 30m）
+FETCH_INTERVAL=6h
 
-# * 抓取链接的最小文件大小（GB）
-FETCH_MIN_FILE_BYTES=1
+# 抓取链接的最小文件大小（支持 K/M/G/T，如 1G, 500M）
+FETCH_MIN_FILE_BYTES=1G
 
 # User-Agent
 USER_AGENT='traffic-keeper/2.8.0 curl/8.0'
 
-# * 单日最大下载量（GB）：200 GB
-MAX_DAILY_BYTES=200
+# 单日最大下载量（支持 K/M/G/T，如 200G, 1T）
+MAX_DAILY_BYTES=200G
 
 # 下载链接（逗号分隔）
 DOWNLOAD_URLS="https://releases.ubuntu.com/22.04.5/ubuntu-22.04.5-desktop-amd64.iso,https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.tar.xz,http://updates-http.cdn-apple.com/2019WinterFCS/fullrestores/041-39257/32129B6C-292C-11E9-9E72-4511412B0A59/iPhone_4.7_12.1.4_16D57_Restore.ipsw,http://dldir1.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.15_240808_x64_01.exe,https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/22.04.5/ubuntu-22.04.5-desktop-amd64.iso,https://mirrors.aliyun.com/linux-kernel/v6.x/linux-6.6.tar.xz,https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/v20.12.2/node-v20.12.2-linux-x64.tar.xz,https://dldir1.qq.com/qqfile/qq/QQNT/Windows/QQ_9.9.15_240808_x64_01.exe,https://updates-http.cdn-apple.com/2019WinterFCS/fullrestores/041-39257/32129B6C-292C-11E9-9E72-4511412B0A59/iPhone_4.7_12.1.4_16D57_Restore.ipsw,https://mirrors.aliyun.com/ubuntu-releases/22.04.5/ubuntu-22.04.5-desktop-amd64.iso"

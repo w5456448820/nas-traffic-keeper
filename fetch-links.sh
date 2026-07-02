@@ -2,8 +2,8 @@
 # =========================================================
 #  Traffic Keeper - 独立链接抓取脚本
 #  Version : 2.8.0
-#  修复：和 traffic-keeper.sh 统一 GB→Bytes 转换规则
-#  配置说明：.env 中 FETCH_MIN_FILE_BYTES 填写 GB 值，0 表示不限制
+#  更新：支持可选数据单位 K/M/G/T（如 1G, 500M, 10K）
+#  配置说明：.env 中 FETCH_MIN_FILE_BYTES 支持 K/M/G/T 单位，0 表示不限制
 # =========================================================
 set -e
 
@@ -12,7 +12,7 @@ set -e
 
 BASE_DIR="$(dirname "$0")"
 OUTPUT_FILE="$BASE_DIR/links/fetched-links.txt"
-FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1}"  # 默认1GB，和主脚本对齐
+FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"  # 默认1G，支持 K/M/G/T 单位
 
 mkdir -p "$BASE_DIR/links"
 > "$OUTPUT_FILE"
@@ -25,12 +25,22 @@ is_uint() {
     esac
 }
 
-# GB 转字节（1GB = 1024^3 Bytes）
-gb_to_bytes() {
-    local val="${1:-0}"
-    is_uint "$val" || val=0
-    [ "$val" -le 0 ] && echo 0 && return
-    echo $((val * 1024 * 1024 * 1024))
+# 解析数据大小字符串为字节（支持 K/M/G/T，如 "10K", "5M", "2G", "1T"）
+parse_size() {
+    val="${1:-0}"
+    val="$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    num="$(echo "$val" | sed 's/[^0-9].*//')"
+    unit="$(echo "$val" | sed 's/^[0-9]*//' | tr '[:upper:]' '[:lower:]')"
+    [ -z "$num" ] && num=0
+    is_uint "$num" || num=0
+    case "$unit" in
+        t|ti|tib|tb) awk "BEGIN {printf \"%d\", $num * 1099511627776}" ;;
+        g|gi|gib|gb) awk "BEGIN {printf \"%d\", $num * 1073741824}" ;;
+        m|mi|mib|mb) awk "BEGIN {printf \"%d\", $num * 1048576}" ;;
+        k|ki|kib|kb) awk "BEGIN {printf \"%d\", $num * 1024}" ;;
+        ''|b|byte|bytes) echo "$num" ;;
+        *) echo "$num" ;;
+    esac
 }
 
 # 1024进制字节转人类可读格式（和主脚本日志完全统一）
@@ -58,7 +68,7 @@ human_bytes() {
 # 尝试获取文件大小，返回：0=达标，1=过小，2=无法确认
 remote_file_size_check() {
     URL="$1"
-    MIN_VALUE="$(gb_to_bytes "$FETCH_MIN_FILE_BYTES")"  # 转成字节后再判断
+    MIN_VALUE="$(parse_size "$FETCH_MIN_FILE_BYTES")"  # 转成字节后再判断
     is_uint "$MIN_VALUE" || MIN_VALUE=0
     [ "$MIN_VALUE" -le 0 ] && return 0  # 0 表示不限制大小
 

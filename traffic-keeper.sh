@@ -2,7 +2,9 @@
 # =========================================================
 #  Traffic Keeper - 主运行脚本
 #  Version : 2.8.0
-#  彻底修复GB/Bytes/TiB单位换算问题
+#  更新内容：
+#    - 统一所有模块版本号为 2.8.0
+#    - 支持可选单位：时间(s/m/h)、数据(K/M/G/T)
 # =========================================================
 set -e
 
@@ -69,13 +71,38 @@ is_uint() {
     esac
 }
 
-# ==================== 核心单位转换函数（已校验） ====================
-# GB转字节（1GB=1024^3 Bytes，和Web配置页完全对齐）
-gb_to_bytes() {
-    local val="${1:-0}"
-    is_uint "$val" || val=0
-    [ "$val" -le 0 ] && echo 0 && return
-    echo $((val * 1024 * 1024 * 1024))
+# 解析数据大小字符串为字节（支持 K/M/G/T，如 "10K", "5M", "2G", "1T"）
+parse_size() {
+    val="${1:-0}"
+    val="$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    num="$(echo "$val" | sed 's/[^0-9].*//')"
+    unit="$(echo "$val" | sed 's/^[0-9]*//' | tr '[:upper:]' '[:lower:]')"
+    [ -z "$num" ] && num=0
+    is_uint "$num" || num=0
+    case "$unit" in
+        t|ti|tib|tb) awk "BEGIN {printf \"%d\", $num * 1099511627776}" ;;
+        g|gi|gib|gb) awk "BEGIN {printf \"%d\", $num * 1073741824}" ;;
+        m|mi|mib|mb) awk "BEGIN {printf \"%d\", $num * 1048576}" ;;
+        k|ki|kib|kb) awk "BEGIN {printf \"%d\", $num * 1024}" ;;
+        ''|b|byte|bytes) echo "$num" ;;
+        *) echo "$num" ;;
+    esac
+}
+
+# 解析时间字符串为秒（支持 s/m/h，如 "10s", "5m", "2h"）
+parse_time() {
+    val="${1:-0}"
+    val="$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    num="$(echo "$val" | sed 's/[^0-9].*//')"
+    unit="$(echo "$val" | sed 's/^[0-9]*//' | tr '[:upper:]' '[:lower:]')"
+    [ -z "$num" ] && num=0
+    is_uint "$num" || num=0
+    case "$unit" in
+        h|hour|hours) echo $((num * 3600)) ;;
+        m|min|minute|minutes) echo $((num * 60)) ;;
+        s|sec|second|seconds|'') echo "$num" ;;
+        *) echo "$num" ;;
+    esac
 }
 
 # 1024进制字节转人类可读格式（TiB/GiB/MiB/KiB，绝对无单位错误）
@@ -123,34 +150,48 @@ read_var() {
 
 apply_defaults() {
     LIMIT_RATE="${LIMIT_RATE:-5M}"
-    USER_AGENT="${USER_AGENT:-traffic-keeper/2.8.0 curl/8.0}"
+    SLEEP_MAX="${SLEEP_MAX:-15m}"
+    SLEEP_MIN="${SLEEP_MIN:-1m}"
     DYNAMIC_SLEEP="${DYNAMIC_SLEEP:-true}"
-    [ "$DYNAMIC_SLEEP" = "false" ] || DYNAMIC_SLEEP=true
-
-    # 默认值单位均为GB，和Web界面完全对齐
-    is_uint "${SLEEP_MIN:-}" || SLEEP_MIN=60
-    is_uint "${SLEEP_MAX:-}" || SLEEP_MAX=900
-    is_uint "${DYNAMIC_SLEEP_MIN_BYTES:-}" || DYNAMIC_SLEEP_MIN_BYTES=1  # 默认1GB
-    is_uint "${ROUND_MIN_BYTES:-}" || ROUND_MIN_BYTES=0                 # 默认0GB
-    is_uint "${RUN_TIMES_MAX:-}" || RUN_TIMES_MAX=3
-    is_uint "${CONNECT_TIMEOUT:-}" || CONNECT_TIMEOUT=15
-    is_uint "${MAX_TIME:-}" || MAX_TIME=3000
-    is_uint "${RETRY:-}" || RETRY=5
-    is_uint "${RETRY_DELAY:-}" || RETRY_DELAY=5
-    is_uint "${FETCH_INTERVAL:-}" || FETCH_INTERVAL=21600
-    is_uint "${FETCH_MIN_FILE_BYTES:-}" || FETCH_MIN_FILE_BYTES=1       # 默认1GB
-    is_uint "${MAX_DAILY_BYTES:-}" || MAX_DAILY_BYTES=200              # 默认200GB
-
-    [ "$SLEEP_MIN" -lt 1 ] && SLEEP_MIN=60
-    [ "$SLEEP_MAX" -lt 1 ] && SLEEP_MAX=900
-    [ "$RUN_TIMES_MAX" -lt 1 ] && RUN_TIMES_MAX=1
-    [ "$CONNECT_TIMEOUT" -lt 1 ] && CONNECT_TIMEOUT=15
-    [ "$MAX_TIME" -lt 1 ] && MAX_TIME=3000
-    [ "$RETRY" -lt 0 ] && RETRY=5
-    [ "$RETRY_DELAY" -lt 0 ] && RETRY_DELAY=5
-    [ "$FETCH_INTERVAL" -lt 60 ] && FETCH_INTERVAL=60
-
-    return 0
+    DYNAMIC_SLEEP_MIN_BYTES="${DYNAMIC_SLEEP_MIN_BYTES:-1G}"
+    ROUND_MIN_BYTES="${ROUND_MIN_BYTES:-0}"
+    RUN_TIMES_MAX="${RUN_TIMES_MAX:-3}"
+    CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-15s}"
+    MAX_TIME="${MAX_TIME:-50m}"
+    RETRY="${RETRY:-5}"
+    RETRY_DELAY="${RETRY_DELAY:-5s}"
+    FETCH_INTERVAL="${FETCH_INTERVAL:-6h}"
+    FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"
+    MAX_DAILY_BYTES="${MAX_DAILY_BYTES:-200G}"
+    USER_AGENT="${USER_AGENT:-'traffic-keeper/2.8.0 curl/8.0'}"
+    WEB_PORT="${WEB_PORT:-8080}"
+    
+    # 校验数据量配置（支持 K/M/G/T 可选单位，全部转为字节）
+    DYNAMIC_SLEEP_MIN_BYTES=$(parse_size "$DYNAMIC_SLEEP_MIN_BYTES")
+    ROUND_MIN_BYTES=$(parse_size "$ROUND_MIN_BYTES")
+    FETCH_MIN_FILE_BYTES=$(parse_size "$FETCH_MIN_FILE_BYTES")
+    MAX_DAILY_BYTES=$(parse_size "$MAX_DAILY_BYTES")
+    
+    # 校验时间配置（支持 s/m/h 可选单位，全部转为秒）
+    SLEEP_MAX=$(parse_time "$SLEEP_MAX")
+    SLEEP_MIN=$(parse_time "$SLEEP_MIN")
+    CONNECT_TIMEOUT=$(parse_time "$CONNECT_TIMEOUT")
+    MAX_TIME=$(parse_time "$MAX_TIME")
+    RETRY_DELAY=$(parse_time "$RETRY_DELAY")
+    FETCH_INTERVAL=$(parse_time "$FETCH_INTERVAL")
+    
+    # 确保都是无符号整数
+    is_uint "$RUN_TIMES_MAX" || RUN_TIMES_MAX=3
+    is_uint "$CONNECT_TIMEOUT" || CONNECT_TIMEOUT=15
+    is_uint "$MAX_TIME" || MAX_TIME=3000
+    is_uint "$RETRY" || RETRY=5
+    is_uint "$RETRY_DELAY" || RETRY_DELAY=5
+    is_uint "$FETCH_INTERVAL" || FETCH_INTERVAL=21600
+    is_uint "$SLEEP_MAX" || SLEEP_MAX=900
+    is_uint "$SLEEP_MIN" || SLEEP_MIN=60
+    is_uint "$WEB_PORT" || WEB_PORT=8080
+    
+    [ "$SLEEP_MIN" -gt "$SLEEP_MAX" ] && SLEEP_MIN=$SLEEP_MAX
 }
 
 reload_env() {
@@ -166,12 +207,30 @@ reload_env() {
 
     apply_defaults
 
-    # ==================== 核心修复：GB转字节（仅转换一次） ====================
-    FETCH_MIN_FILE_BYTES=$(gb_to_bytes "${FETCH_MIN_FILE_BYTES:-0}")
-    DYNAMIC_SLEEP_MIN_BYTES=$(gb_to_bytes "${DYNAMIC_SLEEP_MIN_BYTES:-0}")
-    MAX_DAILY_BYTES=$(gb_to_bytes "${MAX_DAILY_BYTES:-0}")
-    ROUND_MIN_BYTES=$(gb_to_bytes "${ROUND_MIN_BYTES:-0}")
-    # ======================================================================
+    # 校验数据量配置（支持 K/M/G/T 可选单位，全部转为字节）
+    DYNAMIC_SLEEP_MIN_BYTES=$(parse_size "${DYNAMIC_SLEEP_MIN_BYTES:-0}")
+    ROUND_MIN_BYTES=$(parse_size "${ROUND_MIN_BYTES:-0}")
+    FETCH_MIN_FILE_BYTES=$(parse_size "${FETCH_MIN_FILE_BYTES:-0}")
+    MAX_DAILY_BYTES=$(parse_size "${MAX_DAILY_BYTES:-0}")
+    
+    # 校验时间配置（支持 s/m/h 可选单位，全部转为秒）
+    SLEEP_MAX=$(parse_time "${SLEEP_MAX:-0}")
+    SLEEP_MIN=$(parse_time "${SLEEP_MIN:-0}")
+    CONNECT_TIMEOUT=$(parse_time "${CONNECT_TIMEOUT:-0}")
+    MAX_TIME=$(parse_time "${MAX_TIME:-0}")
+    RETRY_DELAY=$(parse_time "${RETRY_DELAY:-0}")
+    FETCH_INTERVAL=$(parse_time "${FETCH_INTERVAL:-0}")
+    
+    # 确保都是无符号整数
+    is_uint "$SLEEP_MAX" || SLEEP_MAX=900
+    is_uint "$SLEEP_MIN" || SLEEP_MIN=60
+    is_uint "$CONNECT_TIMEOUT" || CONNECT_TIMEOUT=15
+    is_uint "$MAX_TIME" || MAX_TIME=3000
+    is_uint "$RETRY" || RETRY=5
+    is_uint "$RETRY_DELAY" || RETRY_DELAY=5
+    is_uint "$FETCH_INTERVAL" || FETCH_INTERVAL=21600
+    
+    [ "$SLEEP_MIN" -gt "$SLEEP_MAX" ] && SLEEP_MIN=$SLEEP_MAX
 
     echo "✅ 配置已更新（单位已转为字节）"
 }

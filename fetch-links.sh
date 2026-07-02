@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 独立链接抓取脚本
-#  Version : 2.9.0
+#  Version : 2.9.1
 #  更新：支持可选数据单位 K/M/G/T（如 1G, 500M, 10K）
 #  配置说明：.env 中 FETCH_MIN_FILE_BYTES 支持 K/M/G/T 单位，0 表示不限制
 # =========================================================
@@ -11,10 +11,10 @@ set -e
 . /app/.env 2>/dev/null || true
 
 BASE_DIR="$(dirname "$0")"
-OUTPUT_FILE="$BASE_DIR/links/fetched-links.txt"
+OUTPUT_FILE="$BASE_DIR/data/links/fetched-links.txt"
 FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"  # 默认1G，支持 K/M/G/T 单位
 
-mkdir -p "$BASE_DIR/links"
+mkdir -p "$BASE_DIR/data/links"
 > "$OUTPUT_FILE"
 
 # 记录抓取开始时间

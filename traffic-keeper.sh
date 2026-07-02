@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 主运行脚本
-#  Version : 2.9.0
+#  Version : 2.9.1
 #  更新内容：
-#    - 统一所有模块版本号为 2.9.0
+#    - 统一所有模块版本号为 2.9.1
 #    - 支持可选单位：时间(s/m/h)、数据(K/M/G/T)
 # =========================================================
 set -e
@@ -55,11 +55,12 @@ fi
 
 DATA_DIR="/app/data"
 DISPLAY_DIR="/app/流量统计"
-mkdir -p "$DATA_DIR" "$DISPLAY_DIR" /app/links
+LINKS_DIR="/app/data/links"
+mkdir -p "$DATA_DIR" "$DISPLAY_DIR" "$LINKS_DIR"
 
 LAST_URL=""
-FETCH_STAMP="/app/links/.last-fetch"
-LINK_CHECK_STAMP="/app/links/.last-check"
+FETCH_STAMP="$LINKS_DIR/.last-fetch"
+LINK_CHECK_STAMP="$LINKS_DIR/.last-check"
 
 get_today() { date +%F; }
 data_file() { echo "$DATA_DIR/stats_data_$(get_today).log"; }
@@ -164,7 +165,7 @@ apply_defaults() {
     LINK_CHECK_INTERVAL="${LINK_CHECK_INTERVAL:-30m}"
     FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"
     MAX_DAILY_BYTES="${MAX_DAILY_BYTES:-200G}"
-    USER_AGENT="${USER_AGENT:-'traffic-keeper/2.9.0 curl/8.0'}"
+    USER_AGENT="${USER_AGENT:-'traffic-keeper/2.9.1 curl/8.0'}"
     WEB_PORT="${WEB_PORT:-8080}"
 
     # 校验数据量配置（支持 K/M/G/T 可选单位，全部转为字节）
@@ -366,7 +367,7 @@ validate_data_file || init_stats
 generate_show_stats
 
 should_fetch_links() {
-    FETCHED_LIST="/app/links/fetched-links.txt"
+    FETCHED_LIST="$LINKS_DIR/fetched-links.txt"
     [ -s "$FETCHED_LIST" ] || return 0
     [ -f "$FETCH_STAMP" ] || return 0
 
@@ -382,7 +383,7 @@ force_fetch_next_round() {
 }
 
 should_check_links() {
-    [ -s /app/links/fetched-links.txt ] || return 0
+    [ -s "$LINKS_DIR/fetched-links.txt" ] || return 0
     [ -f "$LINK_CHECK_STAMP" ] || return 0
 
     NOW="$(date +%s)"
@@ -401,7 +402,7 @@ fetch_links() {
     echo "🔄 正在重新抓取可用下载链接..."
 
     if [ -x /app/fetch-links.sh ]; then
-        if sh /app/fetch-links.sh && [ -s /app/links/fetched-links.txt ]; then
+        if sh /app/fetch-links.sh && [ -s "$LINKS_DIR/fetched-links.txt" ]; then
             date +%s > "$FETCH_STAMP"
             return 0
         fi
@@ -486,9 +487,9 @@ validate_link() {
 }
 
 check_fetched_links() {
-    FETCHED_LIST="/app/links/fetched-links.txt"
-    VALIDATED_LIST="/tmp/validated_urls.list"
-    INVALID_LIST="/tmp/invalid_urls.list"
+    FETCHED_LIST="$LINKS_DIR/fetched-links.txt"
+    VALIDATED_LIST="$LINKS_DIR/validated_urls.list"
+    INVALID_LIST="$LINKS_DIR/invalid_urls.list"
 
     [ -f "$FETCHED_LIST" ] || return 1
     [ -s "$FETCHED_LIST" ] || return 1
@@ -497,6 +498,8 @@ check_fetched_links() {
         echo "ℹ️  链接检测未到间隔，跳过本轮检测"
         return 0
     fi
+
+    CHECK_START=$(date +%s)
 
     > "$VALIDATED_LIST"
     > "$INVALID_LIST"
@@ -526,6 +529,11 @@ check_fetched_links() {
     fi
     echo "✅ 有效链接数：$(wc -l < "$VALIDATED_LIST")"
     date +%s > "$LINK_CHECK_STAMP"
+
+    CHECK_END=$(date +%s)
+    CHECK_DURATION=$((CHECK_END - CHECK_START))
+    echo "⏱️  链接检测耗时：$(human_seconds "$CHECK_DURATION")"
+    echo "$CHECK_DURATION" > "$LINKS_DIR/check_duration.txt"
     return 0
 }
 
@@ -541,7 +549,7 @@ while true; do
 
     LINK_SOURCE=""
     if check_fetched_links; then
-        FINAL_BASE_URLS="$(cat /app/links/fetched-links.txt)"
+        FINAL_BASE_URLS="$(cat "$LINKS_DIR/fetched-links.txt")"
         LINK_SOURCE="抓取链接"
         echo "✅ 使用校验通过的抓取链接"
     elif [ -n "${DOWNLOAD_URLS:-}" ]; then

@@ -1,5 +1,5 @@
 # =========================================================
-#  Version : 2.9.0
+#  Version : 2.9.1
 # =========================================================
 services:
   traffic-keeper:
@@ -17,12 +17,9 @@ services:
       # 环境变量文件
       - ./.env:/app/.env
 
-      # 持久化数据目录
+      # 持久化数据目录（链接文件存储在 data/links/ 下）
       - ./data:/app/data
       - ./流量统计:/app/流量统计
-
-      # 链接存储卷（由 Docker 管理，用于容器间或多次运行共享链接数据）
-      - links:/app/links
 
       # 同步宿主机时区
       - /etc/localtime:/etc/localtime:ro
@@ -36,8 +33,3 @@ services:
     tmpfs:
       - /tmp
     command: ["/bin/sh", "/app/entrypoint.sh"]
-
-volumes:
-  # 用于存储采集到的链接数据，生命周期独立于容器
-  # 即使删除容器，数据仍会保留
-  links:

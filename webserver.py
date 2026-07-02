@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # =========================================================
 #  Traffic Keeper - Web 管理界面服务器
-#  Version : 2.9.0
+#  Version : 2.9.1
 #  端口：默认 8080，可通过 .env 的 WEB_PORT 配置
 # =========================================================
 import http.server
@@ -53,6 +53,8 @@ def env_to_dict():
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
             value = value[1:-1]
+        if key == "DOWNLOAD_URLS":
+            value = value.replace(",", "\n")
         result[key] = value
     return result
 
@@ -74,6 +76,8 @@ def write_env(config_dict):
         key = key.strip()
         if key in config_dict:
             val = config_dict[key]
+            if key == "DOWNLOAD_URLS":
+                val = val.replace("\n", ",")
             if key in quoted_keys or " " in val or "," in val:
                 if '"' not in val:
                     new_lines.append(f'{key}="{val}"')
@@ -87,6 +91,8 @@ def write_env(config_dict):
 
     for key, val in config_dict.items():
         if key not in written:
+            if key == "DOWNLOAD_URLS":
+                val = val.replace("\n", ",")
             if key in quoted_keys or " " in val or "," in val:
                 new_lines.append(f'{key}="{val}"')
             else:
@@ -181,8 +187,8 @@ def get_stats():
         data["_DURATION_HUMAN"] = f"{dur//3600:02d}:{(dur%3600)//60:02d}:{dur%60:02d}"
 
     # 链接抓取统计
-    fetch_stamp = "/app/links/.last-fetch"
-    fetched_links = "/app/links/fetched-links.txt"
+    fetch_stamp = "/app/data/links/.last-fetch"
+    fetched_links = "/app/data/links/fetched-links.txt"
     try:
         if os.path.exists(fetch_stamp):
             mtime = os.path.getmtime(fetch_stamp)
@@ -204,7 +210,7 @@ def get_stats():
         data["FETCH_COUNT"] = "0"
 
     # 可用链接数（经检测后有效的链接）
-    validated_links = "/tmp/validated_urls.list"
+    validated_links = "/app/data/links/validated_urls.list"
     try:
         if os.path.exists(validated_links):
             with open(validated_links, "r", encoding="utf-8", errors="replace") as f:
@@ -216,7 +222,7 @@ def get_stats():
         data["VALID_COUNT"] = "0"
 
     # 上次链接检测时间
-    check_stamp = "/app/links/.last-check"
+    check_stamp = "/app/data/links/.last-check"
     try:
         if os.path.exists(check_stamp):
             mtime = os.path.getmtime(check_stamp)
@@ -226,6 +232,17 @@ def get_stats():
             data["CHECK_TIME"] = "-"
     except Exception:
         data["CHECK_TIME"] = "-"
+
+    # 链接检测耗时
+    try:
+        if os.path.exists("/app/data/links/check_duration.txt"):
+            with open("/app/data/links/check_duration.txt", "r", encoding="utf-8", errors="replace") as f:
+                dur = int(f.read().strip() or "0")
+                data["CHECK_DURATION"] = f"{dur//3600:02d}:{(dur%3600)//60:02d}:{dur%60:02d}"
+        else:
+            data["CHECK_DURATION"] = "-"
+    except Exception:
+        data["CHECK_DURATION"] = "-"
 
     return data
 
@@ -356,6 +373,8 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 .config-item label{display:block;font-weight:600;color:#333;margin-bottom:6px;font-size:13px}
 .config-item input,.config-item select,.config-item textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;font-family:inherit;background:#fff}
 .config-item textarea{font-family:"Courier New",monospace;min-height:70px;resize:vertical}
+#tab-sources .config-grid{grid-template-columns:1fr}
+#tab-sources textarea{min-height:60vh}
 .config-item input:focus,.config-item select:focus,.config-item textarea:focus{outline:none;border-color:#667eea}
 .config-item .desc{margin-top:4px;font-size:11px;color:#888;line-height:1.4}
 .config-item .convert-hint{margin-top:4px;font-size:11px;color:#667eea;font-weight:500}
@@ -385,7 +404,7 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 @media(max-width:768px){.config-grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
 <div class="container">
-<div class="header"><div class="version">v2.9.0</div><h1>Traffic Keeper</h1>
+<div class="header"><div class="version">v2.9.1</div><h1>Traffic Keeper</h1>
 <div class="sub">飞牛 NAS 流量平衡脚本 | <span id="server-time"></span></div></div>
 <div class="stats-panel"><div class="stats" id="stats-box">
 <div class="stat-card"><div class="label">生成日期</div><div class="value" id="stat-date">-</div></div>
@@ -397,12 +416,15 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 <div class="stat-card"><div class="label">抓取链接</div><div class="value" id="stat-fetch-count">-</div></div>
 <div class="stat-card"><div class="label">可用链接</div><div class="value" id="stat-valid-count">-</div></div>
 <div class="stat-card"><div class="label">检测时间</div><div class="value" id="stat-check-time">-</div></div>
+<div class="stat-card"><div class="label">检测用时</div><div class="value" id="stat-check-dur">-</div></div>
 </div></div>
 <div class="main-panel"><div class="panel-body">
 <div class="tabs">
 <button class="tab active" data-tab="config">配置管理</button>
 <button class="tab" data-tab="logs">终端日志</button>
-<button class="tab" data-tab="history">历史数据</button></div>
+<button class="tab" data-tab="history">历史数据</button>
+<button class="tab" data-tab="links">抓取链接</button>
+<button class="tab" data-tab="sources">配置下载源</button></div>
 <div class="tab-content active" id="tab-config"></div>
 <div class="tab-content" id="tab-logs">
 <div class="log-toolbar">
@@ -411,18 +433,23 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 <button type="button" class="btn btn-secondary" onclick="clearLogs()">清空显示</button></div>
 <div class="log-container" id="log-container"></div></div>
 <div class="tab-content" id="tab-history">
-<div style="margin-bottom:12px"><button type="button" class="btn btn-secondary" onclick="loadHistory()">刷新</button>
-<span style="font-size:12px;color:#888;margin-left:8px">显示最近100条历史记录</span></div>
+<div style="margin-bottom:12px"><span style="font-size:12px;color:#888">显示最近100条历史记录</span></div>
 <div id="history-table" style="overflow-x:auto"></div></div>
+<div class="tab-content" id="tab-links">
+<div style="margin-bottom:12px"><span style="font-size:12px;color:#888">抓取到的可用链接列表</span></div>
+<div id="links-table" style="overflow-x:auto"></div></div>
+<div class="tab-content" id="tab-sources"></div>
 </div></div></div>
 <div class="toast" id="toast"></div>
 <script>
-const GROUPS=[
+const CONFIG_GROUPS=[
 {title:"时间设置",keys:["SLEEP_MIN","SLEEP_MAX","CONNECT_TIMEOUT","MAX_TIME","RETRY_DELAY","FETCH_INTERVAL"]},
 {title:"数据设置",keys:["LIMIT_RATE","ROUND_MIN_BYTES","FETCH_MIN_FILE_BYTES","MAX_DAILY_BYTES"]},
 {title:"网络连接",keys:["RUN_TIMES_MAX","RETRY","LINK_CHECK_INTERVAL","USER_AGENT"]},
-{title:"下载源",keys:["DOWNLOAD_URLS"]},
 {title:"系统设置",keys:["DYNAMIC_SLEEP","WEB_PORT"]}
+];
+const SOURCE_GROUPS=[
+{title:"下载源配置",keys:["DOWNLOAD_URLS"]}
 ];
 const FIELD_META={
 LIMIT_RATE:{label:"下载限速",type:"text",desc:"如 5M / 500K / 1G，留空或 0 表示不限速",unit:"rate"},
@@ -441,7 +468,7 @@ FETCH_INTERVAL:{label:"链接抓取间隔",type:"text",desc:"支持 s/m/h 单位
 FETCH_MIN_FILE_BYTES:{label:"最小文件大小",type:"text",desc:"支持 K/M/G/T 单位，如 1G / 500M",unit:"size"},
 USER_AGENT:{label:"User-Agent",type:"text",desc:"HTTP 请求标识"},
 MAX_DAILY_BYTES:{label:"单日最大下载量",type:"text",desc:"支持 K/M/G/T 单位，如 200G / 1T",unit:"size"},
-DOWNLOAD_URLS:{label:"下载链接列表",type:"textarea",desc:"多个链接用英文逗号分隔"},
+DOWNLOAD_URLS:{label:"下载链接列表",type:"textarea",desc:"每行一个链接"},
 WEB_PORT:{label:"Web 端口",type:"number",desc:"管理界面端口，需与 docker-compose 一致"}
 };
 function parseTime(v){const m=String(v).trim().match(/^(\d+)\s*([smh]?)$/i);if(!m)return null;const n=parseInt(m[1]),u=m[2].toLowerCase();if(u==='h')return n*3600;if(u==='m')return n*60;return n}
@@ -449,14 +476,16 @@ function parseSize(v){const m=String(v).trim().match(/^(\d+)\s*([KMGTkmgt]?[iI]?
 function fmtSize(b){if(b>=1099511627776)return(b/1099511627776).toFixed(2)+' TiB';if(b>=1073741824)return(b/1073741824).toFixed(2)+' GiB';if(b>=1048576)return(b/1048576).toFixed(2)+' MiB';if(b>=1024)return(b/1024).toFixed(2)+' KiB';return b+' B'}
 function fmtTime(s){if(s>=3600){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h+'h '+m+'m';}if(s>=60){return Math.floor(s/60)+'m '+s%60+'s';}return s+'s'}
 function unitHint(key,val){const m=FIELD_META[key];if(!m||!m.unit||!val)return'';if(m.unit==='time'){const s=parseTime(val);if(s!==null)return'<div class="convert-hint">= '+fmtTime(s)+'</div>'}if(m.unit==='size'){const b=parseSize(val);if(b!==null)return'<div class="convert-hint">= '+fmtSize(b)+'</div>'}return''}
-document.querySelectorAll('.tab').forEach(b=>{b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('tab-'+b.dataset.tab).classList.add('active');if(b.dataset.tab==='logs')startLogStream();}});
+document.querySelectorAll('.tab').forEach(b=>{b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('tab-'+b.dataset.tab).classList.add('active');if(b.dataset.tab==='logs')startLogStream();if(b.dataset.tab==='links')loadLinks();}});
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function renderConfig(cfg){const box=document.getElementById('tab-config');box.innerHTML='';GROUPS.forEach(g=>{const section=document.createElement('div');section.className='config-section';let html='<div class="config-section-title">'+escapeHtml(g.title)+'</div><div class="config-grid">';g.keys.forEach(key=>{const m=FIELD_META[key];if(!m)return;const v=cfg[key]!==undefined?cfg[key]:'';html+='<div class="config-item">';html+='<label>'+escapeHtml(m.label)+'</label>';if(m.type==='textarea'){html+='<textarea name="'+key+'" oninput="updateHint(this)">'+escapeHtml(v)+'</textarea>'}else if(m.type==='select'){html+='<select name="'+key+'">'+m.options.map(([o,l])=>'<option value="'+escapeHtml(o)+'"'+(o===v?' selected':'')+'>'+escapeHtml(l)+'</option>').join('')+'</select>'}else{html+='<input type="'+m.type+'" name="'+key+'" value="'+escapeHtml(v)+'" oninput="updateHint(this)">'}html+=unitHint(key,v);html+='<div class="desc">'+escapeHtml(m.desc)+'</div></div>'});html+='</div>';section.innerHTML=html;box.appendChild(section)});const actions=document.createElement('div');actions.className='actions';actions.innerHTML='<span class="hint">配置保存后，下一轮任务循环自动生效（无需重启容器）</span><button type="button" class="btn btn-secondary" onclick="loadConfig()">重新读取</button><button type="button" class="btn btn-primary" onclick="saveConfig()">保存配置</button>';box.appendChild(actions)}
+function renderGroups(boxId,groups,cfg,showTitle){const box=document.getElementById(boxId);box.innerHTML='';groups.forEach(g=>{const section=document.createElement('div');section.className='config-section';let html='';if(showTitle!==false){html+='<div class="config-section-title">'+escapeHtml(g.title)+'</div>'}html+='<div class="config-grid">';g.keys.forEach(key=>{const m=FIELD_META[key];if(!m)return;const v=cfg[key]!==undefined?cfg[key]:'';html+='<div class="config-item">';html+='<label>'+escapeHtml(m.label)+'</label>';if(m.type==='textarea'){html+='<textarea name="'+key+'" oninput="updateHint(this)">'+escapeHtml(v)+'</textarea>'}else if(m.type==='select'){html+='<select name="'+key+'">'+m.options.map(([o,l])=>'<option value="'+escapeHtml(o)+'"'+(o===v?' selected':'')+'>'+escapeHtml(l)+'</option>').join('')+'</select>'}else{html+='<input type="'+m.type+'" name="'+key+'" value="'+escapeHtml(v)+'" oninput="updateHint(this)">'}html+=unitHint(key,v);html+='<div class="desc">'+escapeHtml(m.desc)+'</div></div>'});html+='</div>';section.innerHTML=html;box.appendChild(section)});const actions=document.createElement('div');actions.className='actions';actions.innerHTML='<span class="hint">配置保存后，下一轮任务循环自动生效（无需重启容器）</span><button type="button" class="btn btn-secondary" onclick="loadConfig()">重新读取</button><button type="button" class="btn btn-primary" onclick="saveConfig()">保存配置</button>';box.appendChild(actions)}
+function renderConfig(cfg){renderGroups('tab-config',CONFIG_GROUPS,cfg,true)}
+function renderSources(cfg){renderGroups('tab-sources',SOURCE_GROUPS,cfg,false)}
 function updateHint(el){const key=el.name;const hintEl=el.parentElement.querySelector('.convert-hint');if(hintEl)hintEl.outerHTML=unitHint(key,el.value)}
-function loadConfig(){fetch('/api/config').then(r=>r.json()).then(d=>{renderConfig(d);showToast('配置已重新读取','success')}).catch(e=>showToast('读取失败: '+e,'error'))}
-function saveConfig(){const f=document.getElementById('tab-config');const inputs=f.querySelectorAll('input,select,textarea');const data={};inputs.forEach(el=>{data[el.name]=el.value});fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).then(res=>{if(res.success)showToast('配置保存成功！下一轮任务自动生效','success');else showToast('保存失败: '+(res.error||'未知错误'),'error')}).catch(e=>showToast('保存失败: '+e,'error'))}
+function loadConfig(){fetch('/api/config').then(r=>r.json()).then(d=>{renderConfig(d);renderSources(d);showToast('配置已重新读取','success')}).catch(e=>showToast('读取失败: '+e,'error'))}
+function saveConfig(){const data={};document.querySelectorAll('#tab-config input,#tab-config select,#tab-config textarea,#tab-sources input,#tab-sources select,#tab-sources textarea').forEach(el=>{data[el.name]=el.value});fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).then(res=>{if(res.success)showToast('配置保存成功！下一轮任务自动生效','success');else showToast('保存失败: '+(res.error||'未知错误'),'error')}).catch(e=>showToast('保存失败: '+e,'error'))}
 function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+type;setTimeout(()=>t.classList.add('show'),10);setTimeout(()=>t.classList.remove('show'),3000)}
-function updateStats(){fetch('/api/stats').then(r=>r.json()).then(d=>{document.getElementById('stat-date').textContent=d.DATE||'-';document.getElementById('stat-time').textContent=d.GENERATE_TIME||'-';document.getElementById('stat-count').textContent=d.COUNT||'0';document.getElementById('stat-size').textContent=d._SIZE_HUMAN||'-';document.getElementById('stat-dur').textContent=d._DURATION_HUMAN||'-';document.getElementById('stat-fetch-time').textContent=d.FETCH_TIME||'-';document.getElementById('stat-fetch-count').textContent=d.FETCH_COUNT||'0';document.getElementById('stat-valid-count').textContent=d.VALID_COUNT||'0';document.getElementById('stat-check-time').textContent=d.CHECK_TIME||'-';}).catch(()=>{})}
+function updateStats(){fetch('/api/stats').then(r=>r.json()).then(d=>{document.getElementById('stat-date').textContent=d.DATE||'-';document.getElementById('stat-time').textContent=d.GENERATE_TIME||'-';document.getElementById('stat-count').textContent=d.COUNT||'0';document.getElementById('stat-size').textContent=d._SIZE_HUMAN||'-';document.getElementById('stat-dur').textContent=d._DURATION_HUMAN||'-';document.getElementById('stat-fetch-time').textContent=d.FETCH_TIME||'-';document.getElementById('stat-fetch-count').textContent=d.FETCH_COUNT||'0';document.getElementById('stat-valid-count').textContent=d.VALID_COUNT||'0';document.getElementById('stat-check-time').textContent=d.CHECK_TIME||'-';document.getElementById('stat-check-dur').textContent=d.CHECK_DURATION||'-';}).catch(()=>{})}
 let autoScroll=true,eventSource=null,allLogLines=[];
 function toggleAutoScroll(){autoScroll=!autoScroll;document.getElementById('scroll-btn').textContent=autoScroll?'自动滚动':'已暂停'}
 function filterLogs(){const q=document.getElementById('log-search').value.trim().toLowerCase();document.querySelectorAll('.log-line').forEach(line=>{line.classList.toggle('hidden',q&&!line.textContent.toLowerCase().includes(q))})}
@@ -464,8 +493,9 @@ function renderLogs(lines){const c=document.getElementById('log-container');cons
 function startLogStream(){if(eventSource)return;const c=document.getElementById('log-container');fetch('/api/logs').then(r=>r.json()).then(d=>{allLogLines=d.lines;renderLogs(allLogLines)});try{eventSource=new EventSource('/api/logs/stream');eventSource.onmessage=(e)=>{allLogLines.push(e.data);const q=document.getElementById('log-search').value.trim().toLowerCase();const div=document.createElement('div');div.className='log-line';if(q&&!e.data.toLowerCase().includes(q))div.classList.add('hidden');div.textContent=e.data;c.appendChild(div);if(autoScroll)c.scrollTop=c.scrollHeight};eventSource.onerror=()=>{setTimeout(()=>{if(eventSource){eventSource.close();eventSource=null}},2000)}}catch(e){console.error(e)}}
 function clearLogs(){document.getElementById('log-container').innerHTML='';allLogLines=[]}
 function loadHistory(){fetch('/api/history').then(r=>r.json()).then(d=>{const box=document.getElementById('history-table');if(!d.records||d.records.length===0){box.innerHTML='<div class="history-empty">暂无历史数据</div>';return}let html='<table class="history-table"><thead><tr><th>日期</th><th>生成时间</th><th>下载次数</th><th>下载流量</th><th>累计耗时</th></tr></thead><tbody>';d.records.forEach(r=>{html+='<tr>';html+='<td>'+escapeHtml(r.date||'-')+'</td>';html+='<td>'+escapeHtml(r.GENERATE_TIME||'-')+'</td>';html+='<td>'+escapeHtml(r.COUNT||'0')+'</td>';html+='<td>'+escapeHtml(r._SIZE_HUMAN||'-')+'</td>';html+='<td>'+escapeHtml(r._DURATION_HUMAN||'-')+'</td>';html+='</tr>'});html+='</tbody></table>';box.innerHTML=html}).catch(e=>{document.getElementById('history-table').innerHTML='<div class="history-empty">加载失败: '+escapeHtml(e.message)+'</div>'})}
+function loadLinks(){fetch('/api/links').then(r=>r.json()).then(d=>{const box=document.getElementById('links-table');const total=d.total||0,valid=d.valid||0,urls=d.urls||[];let html='<div style="margin-bottom:12px;font-size:13px;color:#666">总计: '+total+' 条 | 可用: '+valid+' 条</div>';if(urls.length===0){box.innerHTML=html+'<div class="history-empty">暂无可用链接</div>';return}html+='<table class="history-table"><thead><tr><th style="width:60px">#</th><th>链接地址</th></tr></thead><tbody>';urls.forEach((u,i)=>{html+='<tr><td>'+(i+1)+'</td><td style="word-break:break-all">'+escapeHtml(u)+'</td></tr>'});html+='</tbody></table>';box.innerHTML=html}).catch(e=>{document.getElementById('links-table').innerHTML='<div class="history-empty">加载失败: '+escapeHtml(e.message)+'</div>'})}
 function updateTime(){document.getElementById('server-time').textContent=new Date().toLocaleString('zh-CN')}
-loadConfig();updateStats();updateTime();setInterval(updateStats,10000);setInterval(updateTime,1000);
+loadConfig();updateStats();updateTime();loadHistory();loadLinks();setInterval(updateStats,10000);setInterval(updateTime,1000);
 </script></body></html>
 """
 
@@ -559,6 +589,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"records": get_history()})
             except Exception as e:
                 self._send_json({"records": [], "error": str(e)}, 500)
+        elif path == "/api/links":
+            try:
+                import os
+                links_dir = "/app/data/links"
+                total, valid, urls = 0, 0, []
+                try:
+                    with open(os.path.join(links_dir, "fetched-links.txt"), "r", encoding="utf-8", errors="replace") as f:
+                        total = sum(1 for line in f if line.strip().startswith("http"))
+                except Exception:
+                    pass
+                try:
+                    with open(os.path.join(links_dir, "validated_urls.list"), "r", encoding="utf-8", errors="replace") as f:
+                        urls = [line.strip() for line in f if line.strip().startswith("http")]
+                        valid = len(urls)
+                except Exception:
+                    pass
+                self._send_json({"total": total, "valid": valid, "urls": urls})
+            except Exception as e:
+                self._send_json({"total": 0, "valid": 0, "urls": [], "error": str(e)}, 500)
         elif path == "/api/logs":
             try:
                 self._send_json({"lines": get_log_tail(2000)})

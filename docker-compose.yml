@@ -1,3 +1,6 @@
+# =========================================================
+#  Version : 2.8.0
+# =========================================================
 services:
   traffic-keeper:
     image: python:3.12-alpine
@@ -5,14 +8,23 @@ services:
     restart: always
     working_dir: /app
     volumes:
+      # 主程序脚本（只读）
       - ./traffic-keeper.sh:/app/traffic-keeper.sh:ro
       - ./fetch-links.sh:/app/fetch-links.sh:ro
       - ./webserver.py:/app/webserver.py:ro
       - ./entrypoint.sh:/app/entrypoint.sh:ro
+
+      # 环境变量文件
       - ./.env:/app/.env
+
+      # 持久化数据目录
       - ./data:/app/data
       - ./流量统计:/app/流量统计
+
+      # 链接存储卷（由 Docker 管理，用于容器间或多次运行共享链接数据）
       - links:/app/links
+
+      # 同步宿主机时区
       - /etc/localtime:/etc/localtime:ro
     ports:
       - "8080:8080"
@@ -26,4 +38,6 @@ services:
     command: ["/bin/sh", "/app/entrypoint.sh"]
 
 volumes:
+  # 用于存储采集到的链接数据，生命周期独立于容器
+  # 即使删除容器，数据仍会保留
   links:

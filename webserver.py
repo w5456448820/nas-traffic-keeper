@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # =========================================================
 #  Traffic Keeper - Web 管理界面服务器
-#  Version : 2.9.1
+#  Version : 2.9.2
 #  端口：默认 8080，可通过 .env 的 WEB_PORT 配置
 # =========================================================
 import http.server
@@ -404,7 +404,7 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 @media(max-width:768px){.config-grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
 <div class="container">
-<div class="header"><div class="version">v2.9.1</div><h1>Traffic Keeper</h1>
+<div class="header"><div class="version">v2.9.2</div><h1>Traffic Keeper</h1>
 <div class="sub">飞牛 NAS 流量平衡脚本 | <span id="server-time"></span></div></div>
 <div class="stats-panel"><div class="stats" id="stats-box">
 <div class="stat-card"><div class="label">生成日期</div><div class="value" id="stat-date">-</div></div>

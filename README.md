@@ -178,7 +178,7 @@ vi /vol2/1000/Docker/traffic-keeper/.env
 | `FETCH_INTERVAL` | `6h` | 时间 | 链接抓取间隔（支持 s/m/h） |
 | `LINK_CHECK_INTERVAL` | `30m` | 时间 | 链接检测间隔（支持 s/m/h） |
 | `FETCH_MIN_FILE_BYTES` | `500M` | 数据 | 抓取链接的最小文件大小（支持 K/M/G/T） |
-| `USER_AGENT` | `traffic-keeper/2.9.1 curl/8.0` | - | HTTP User-Agent |
+| `USER_AGENT` | `traffic-keeper/2.9.2 curl/8.0` | - | HTTP User-Agent |
 | `MAX_DAILY_BYTES` | `200G` | 数据 | 单日最大下载量（支持 K/M/G/T） |
 | `DOWNLOAD_URLS` | （多个 ISO 链接） | - | 备用下载链接列表（每行一个，内部存储为逗号分隔） |
 | `WEB_PORT` | `8080` | - | Web 管理界面端口 |
@@ -513,6 +513,7 @@ docker compose up -d
 
 | 版本 | 更新内容 |
 |------|----------|
+| 2.9.2 | 修复 busybox `awk printf "%d"` 对超过 2^31 的大数溢出为负数，导致 `MAX_DAILY_BYTES`（如 200G）解析失败、单日下载限额完全失效；修复 GitHub Release URL 提取后通过 `while read` 循环写入临时文件时数据丢失（改用 `tee -a` 管道直接写入）；GitHub Release 链接在 `validate_link()` 和下载前检查中跳过 HEAD 大小检测（GitHub CDN 对大文件返回假 Content-Length: 9）；移除无 `browser_download_url` 的仓库（nodejs/node、rust-lang/rust、tensorflow/tensorflow）和已 404 的 Ubuntu 24.04 镜像源 |
 | 2.9.1 | 修复 `should_fetch_links()` 中硬编码旧路径 `/app/links/fetched-links.txt` 导致每次循环都重新抓取链接的问题（链接目录已迁移到 `/app/data/links/`）；Web 界面重构：新增"抓取链接"和"配置下载源"独立页签，下载链接输入改为按行分隔；统一所有模块版本号为 2.9.1 |
 | 2.9.0 | 支持可选单位格式（时间 s/m/h，数据 K/M/G/T）；新增 `LINK_CHECK_INTERVAL` 链接检测间隔，避免每轮重复检测所有链接；去除 `DYNAMIC_SLEEP_MIN_BYTES` 动态休眠最小下载量阈值；修复 `set -e` 与函数内 `[ condition ] && action` 组合导致 `apply_defaults()` 异常退出的问题；Web 界面新增链接抓取时间、抓取链接数、可用链接数、检测时间统计展示；统一所有模块版本号为 2.9.0 |
 | 2.8.0 | 修复 Web 界面配置保存失败（webserver.py `quoted_keys` 变量未定义导致 `NameError`）；修复 fetch-links.sh 子进程无法继承父进程环境变量导致 `FETCH_MIN_FILE_BYTES` 配置不生效；修复 fetch-links.sh 中 sed BRE 语法不兼容 busybox（`\|`、`\+` 在 Alpine 下报错）；安装脚本版本号与各模块版本号统一为 2.8.0 |

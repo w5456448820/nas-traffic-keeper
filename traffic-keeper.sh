@@ -1,9 +1,11 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 主运行脚本
-#  Version : 2.9.1
+#  Version : 2.9.2
 #  更新内容：
-#    - 统一所有模块版本号为 2.9.1
+#    - 修复 busybox awk printf "%d" 大数溢出导致单日下载限额失效
+#    - 修复 GitHub Release 链接抓取后丢失问题
+#    - GitHub Release 链接跳过 HEAD 大小检查（CDN 返回假 Content-Length）
 #    - 支持可选单位：时间(s/m/h)、数据(K/M/G/T)
 # =========================================================
 set -e
@@ -82,10 +84,10 @@ parse_size() {
     [ -z "$num" ] && num=0
     is_uint "$num" || num=0
     case "$unit" in
-        t|ti|tib|tb) awk "BEGIN {printf \"%d\", $num * 1099511627776}" ;;
-        g|gi|gib|gb) awk "BEGIN {printf \"%d\", $num * 1073741824}" ;;
-        m|mi|mib|mb) awk "BEGIN {printf \"%d\", $num * 1048576}" ;;
-        k|ki|kib|kb) awk "BEGIN {printf \"%d\", $num * 1024}" ;;
+        t|ti|tib|tb) awk "BEGIN {print int($num * 1099511627776)}" ;;
+        g|gi|gib|gb) awk "BEGIN {print int($num * 1073741824)}" ;;
+        m|mi|mib|mb) awk "BEGIN {print int($num * 1048576)}" ;;
+        k|ki|kib|kb) awk "BEGIN {print int($num * 1024)}" ;;
         ''|b|byte|bytes) echo "$num" ;;
         *) echo "$num" ;;
     esac
@@ -165,7 +167,7 @@ apply_defaults() {
     LINK_CHECK_INTERVAL="${LINK_CHECK_INTERVAL:-30m}"
     FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"
     MAX_DAILY_BYTES="${MAX_DAILY_BYTES:-200G}"
-    USER_AGENT="${USER_AGENT:-'traffic-keeper/2.9.1 curl/8.0'}"
+    USER_AGENT="${USER_AGENT:-'traffic-keeper/2.9.2 curl/8.0'}"
     WEB_PORT="${WEB_PORT:-8080}"
 
     # 校验数据量配置（支持 K/M/G/T 可选单位，全部转为字节）
@@ -279,7 +281,7 @@ check_daily_limit() {
     CURRENT="$(read_var SIZE_BYTES)"
     CURRENT="${CURRENT:-0}"
     is_uint "$CURRENT" || CURRENT=0
-    [ "$CURRENT" -ge "$MAX_BYTES" ] && return 1 || return 0
+    awk "BEGIN { exit ($CURRENT >= $MAX_BYTES) ? 1 : 0 }"
 }
 
 validate_data_file() {
@@ -420,6 +422,14 @@ validate_link() {
     URL="$(normalize_url "$1")"
     [ -n "$URL" ] || return 1
 
+    # GitHub Release 文件通常较大且 CDN 返回假 Content-Length，直接放行
+    case "$URL" in
+        *github.com*/releases/download/*)
+            echo "✅ 可用链接：$URL（GitHub Release，跳过大小检查）"
+            return 0
+            ;;
+    esac
+
     check_min_file_size() {
         SIZE_VALUE="$1"
         MIN_VALUE="${FETCH_MIN_FILE_BYTES:-0}"
@@ -429,12 +439,12 @@ validate_link() {
             echo "   [校验] ⚠️  无法确认文件大小，保留到下载时判断"
             return 2
         fi
-        if [ "$SIZE_VALUE" -lt "$MIN_VALUE" ]; then
-            echo "   [校验] ❌ 文件过小：$(human_bytes "$SIZE_VALUE") < $(human_bytes "$MIN_VALUE")"
-            return 1
-        fi
-        echo "   [校验] ✅ 文件大小达标：$(human_bytes "$SIZE_VALUE")"
-        return 0
+        awk "BEGIN { exit ($SIZE_VALUE >= $MIN_VALUE) ? 0 : 1 }" && {
+            echo "   [校验] ✅ 文件大小达标：$(human_bytes "$SIZE_VALUE")"
+            return 0
+        }
+        echo "   [校验] ❌ 文件过小：$(human_bytes "$SIZE_VALUE") < $(human_bytes "$MIN_VALUE")"
+        return 1
     }
 
     set +e
@@ -621,7 +631,13 @@ while true; do
         [ -n "$LINK_SOURCE" ] && printf '   来源: %s\n' "$LINK_SOURCE"
 
         SKIP_DOWNLOAD=false
-        if [ "$FETCH_MIN_FILE_BYTES" -gt 0 ]; then
+        # GitHub Release 跳过大小检查（CDN 返回假 Content-Length）
+        case "$URL" in
+            *github.com*/releases/download/*)
+                echo "   [下载前] ℹ️  GitHub Release 链接，跳过大小检查"
+                ;;
+            *)
+                if [ "$FETCH_MIN_FILE_BYTES" -gt 0 ]; then
             echo "   [下载前] 🔍 正在检查文件大小..."
             set +e
             HEAD_SIZE="$(curl -IL --connect-timeout 5 --max-time 30 --fail -L \
@@ -639,6 +655,7 @@ while true; do
                 echo "   [下载前] ⚠️  无法确认文件大小，继续下载"
             fi
         fi
+        esac
 
         if [ "$SKIP_DOWNLOAD" = "true" ]; then
             continue

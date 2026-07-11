@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # =========================================================
 #  Traffic Keeper - 独立链接抓取脚本
-#  Version : 2.9.1
+#  Version : 2.9.2
 #  更新：支持可选数据单位 K/M/G/T（如 1G, 500M, 10K）
 #  配置说明：.env 中 FETCH_MIN_FILE_BYTES 支持 K/M/G/T 单位，0 表示不限制
 # =========================================================
@@ -15,7 +15,9 @@ OUTPUT_FILE="$BASE_DIR/data/links/fetched-links.txt"
 FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"  # 默认1G，支持 K/M/G/T 单位
 
 mkdir -p "$BASE_DIR/data/links"
-> "$OUTPUT_FILE"
+TMP_OUTPUT="/tmp/fetched-links_$$.txt"
+> "$TMP_OUTPUT"
+OUTPUT_FILE="$BASE_DIR/data/links/fetched-links.txt"
 
 # 记录抓取开始时间
 START_TIME=$(date +%s)
@@ -37,10 +39,10 @@ parse_size() {
     [ -z "$num" ] && num=0
     is_uint "$num" || num=0
     case "$unit" in
-        t|ti|tib|tb) awk "BEGIN {printf \"%d\", $num * 1099511627776}" ;;
-        g|gi|gib|gb) awk "BEGIN {printf \"%d\", $num * 1073741824}" ;;
-        m|mi|mib|mb) awk "BEGIN {printf \"%d\", $num * 1048576}" ;;
-        k|ki|kib|kb) awk "BEGIN {printf \"%d\", $num * 1024}" ;;
+        t|ti|tib|tb) awk "BEGIN {print int($num * 1099511627776)}" ;;
+        g|gi|gib|gb) awk "BEGIN {print int($num * 1073741824)}" ;;
+        m|mi|mib|mb) awk "BEGIN {print int($num * 1048576)}" ;;
+        k|ki|kib|kb) awk "BEGIN {print int($num * 1024)}" ;;
         ''|b|byte|bytes) echo "$num" ;;
         *) echo "$num" ;;
     esac
@@ -87,12 +89,16 @@ remote_file_size_check() {
             2*|3*)
                 REMOTE_SIZE="$(echo "$HEAD_OUT" | tr -d '\r' | awk 'tolower($1)=="content-length:" {print $2}' | tail -n 1)"
                 if is_uint "$REMOTE_SIZE"; then
-                    if [ "$REMOTE_SIZE" -ge "$MIN_VALUE" ]; then
+                    # 如果 Content-Length 极小（< 1KB）但阈值 >= 1MB，很可能是 CDN 假响应，跳过
+                    if [ "$REMOTE_SIZE" -lt 1024 ] && [ "$MIN_VALUE" -ge 1048576 ]; then
+                        :
+                    elif [ "$REMOTE_SIZE" -ge "$MIN_VALUE" ]; then
                         echo "✅ 文件大小达标，已抓取：$(human_bytes "$REMOTE_SIZE") $URL"
                         return 0
+                    else
+                        echo "❌ 文件过小，未抓取：$(human_bytes "$REMOTE_SIZE") < $(human_bytes "$MIN_VALUE") $URL"
+                        return 1
                     fi
-                    echo "❌ 文件过小，未抓取：$(human_bytes "$REMOTE_SIZE") < $(human_bytes "$MIN_VALUE") $URL"
-                    return 1
                 fi
                 ;;
         esac
@@ -108,10 +114,10 @@ remote_file_size_check() {
         REMOTE_SIZE="$(echo "$RANGE_OUT" | tr -d '\r' | awk 'tolower($1)=="content-range:" {split($0,a,"/"); print a[2]}' | tr -dc '0-9')"
         [ -n "$REMOTE_SIZE" ] || REMOTE_SIZE="$(echo "$RANGE_OUT" | tr -d '\r' | awk 'tolower($1)=="content-length:" {print $2}' | tail -n 1)"
         if is_uint "$REMOTE_SIZE"; then
-            if [ "$REMOTE_SIZE" -ge "$MIN_VALUE" ]; then
+            awk "BEGIN { exit ($REMOTE_SIZE >= $MIN_VALUE) ? 0 : 1 }" && {
                 echo "✅ 文件大小达标，已抓取：$(human_bytes "$REMOTE_SIZE") $URL"
                 return 0
-            fi
+            }
             echo "❌ 文件过小，未抓取：$(human_bytes "$REMOTE_SIZE") < $(human_bytes "$MIN_VALUE") $URL"
             return 1
         fi
@@ -127,7 +133,7 @@ append_if_large_enough() {
     remote_file_size_check "$URL"
     RESULT=$?
     if [ "$RESULT" -eq 0 ] || [ "$RESULT" -eq 2 ]; then
-        echo "$URL" >> "$OUTPUT_FILE"
+        echo "$URL" >> "$TMP_OUTPUT"
     fi
 }
 
@@ -140,7 +146,7 @@ REPOS_LIST="/tmp/tk_repos_$$.txt"
 cat > "$REPOS_LIST" << 'REPOSEOF'
 curl/curl
 jqlang/jq
-nodejs/node
+llvm/llvm-project
 REPOSEOF
 
 while IFS= read -r repo; do
@@ -148,20 +154,18 @@ while IFS= read -r repo; do
 
     set +e
     RESP=$(curl -sL --connect-timeout 10 --max-time 30 --retry 2 "$GITHUB_API/repos/$repo/releases/latest" 2>/dev/null)
+    CURL_RC=$?
     set -e
 
-    echo "$RESP" | grep -q "browser_download_url" || continue
+    [ "$CURL_RC" -ne 0 ] && echo "⚠️  GitHub API 请求失败 ($repo): curl exit $CURL_RC" && continue
+    [ -z "$RESP" ] && echo "⚠️  GitHub API 返回空 ($repo)" && continue
+    echo "$RESP" | grep -q "browser_download_url" || { echo "ℹ️  $repo 无 browser_download_url"; continue; }
 
-    URLS_LIST="/tmp/tk_urls_$$.txt"
-    echo "$RESP" | grep "browser_download_url" | \
+    # GitHub Release 文件通常较大，直接提取写入，不做 HEAD 大小检查（CDN 返回假 Content-Length）
+    URL_COUNT=$(echo "$RESP" | grep "browser_download_url" | \
         grep -E "\.(tar\.gz|zip|tar\.xz|pkg|dmg|exe)" | \
-        cut -d '"' -f 4 | tr -d '\r' > "$URLS_LIST"
-
-    while IFS= read -r URL; do
-        append_if_large_enough "$URL"
-    done < "$URLS_LIST"
-
-    rm -f "$URLS_LIST"
+        sed 's/.*"browser_download_url": "//;s/".*//' | tr -d '\r' | tee -a "$TMP_OUTPUT" | wc -l)
+    echo "📦 $repo: 提取到 $URL_COUNT 个链接"
 done < "$REPOS_LIST"
 rm -f "$REPOS_LIST"
 
@@ -170,11 +174,8 @@ echo "🔍 正在从国内镜像站抓取资源..."
 
 MIRRORS_LIST="/tmp/tk_mirrors_$$.txt"
 cat > "$MIRRORS_LIST" << 'MIRRORSEOF'
-https://mirrors.tuna.tsinghua.edu.cn/apache/httpd/
-https://mirrors.aliyun.com/ubuntu-releases/22.04/
 https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/22.04/
-https://mirrors.aliyun.com/linux-kernel/v6.x/
-https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/v20.12.2/
+https://releases.ubuntu.com/22.04/
 MIRRORSEOF
 
 while IFS= read -r base_url; do
@@ -218,13 +219,17 @@ while IFS= read -r base_url; do
 done < "$MIRRORS_LIST"
 rm -f "$MIRRORS_LIST"
 
-# ========== 清理输出文件 ==========
-sed -i '/^$/d' "$OUTPUT_FILE"
-grep -E '^https?://' "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp" 2>/dev/null || true
-mv "${OUTPUT_FILE}.tmp" "$OUTPUT_FILE"
-sort -u "$OUTPUT_FILE" -o "$OUTPUT_FILE"
+# ========== 清理并替换输出文件 ==========
+sed -i '/^$/d' "$TMP_OUTPUT"
+grep -E '^https?://' "$TMP_OUTPUT" > "${TMP_OUTPUT}.clean" 2>/dev/null || true
+sort -u "${TMP_OUTPUT}.clean" -o "${TMP_OUTPUT}.clean"
+COUNT="$(wc -l < "${TMP_OUTPUT}.clean")"
 
-COUNT="$(wc -l < "$OUTPUT_FILE")"
+# 只有抓取到链接才替换原文件
+if [ "$COUNT" -gt 0 ]; then
+    cp "${TMP_OUTPUT}.clean" "$OUTPUT_FILE"
+fi
+rm -f "${TMP_OUTPUT}.clean" "$TMP_OUTPUT"
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 

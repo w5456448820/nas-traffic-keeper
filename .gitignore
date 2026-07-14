@@ -1,17 +1,21 @@
-# 运行时数据
-data/
-links/
-流量统计/
+# 构建输出
+/dist/
+*.fpk
 
-# Python 缓存
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
-# 本地配置与临时文件
-.env
-*.log
-*.tmp
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# 系统文件
+# OS
 .DS_Store
 Thumbs.db
+
+# 日志
+*.log

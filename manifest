@@ -1,0 +1,13 @@
+appname               = traffic-keeper
+version               = 2.9.3
+display_name          = Traffic Keeper
+desc                  = NAS流量保活工具，自动下载大文件维持网络活跃
+platform              = all
+source                = thirdparty
+maintainer            = 545648820
+distributor           = 545648820
+os_min_version        = 1.0.0
+desktop_uidir         = ui
+desktop_applaunchname = traffic-keeper.Application
+checkport             = true
+ctl_stop              = true

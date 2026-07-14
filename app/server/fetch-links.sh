@@ -5,19 +5,19 @@
 #  更新：支持可选数据单位 K/M/G/T（如 1G, 500M, 10K）
 #  配置说明：.env 中 FETCH_MIN_FILE_BYTES 支持 K/M/G/T 单位，0 表示不限制
 # =========================================================
-set -e
+# set -e  # disabled for FPK native mode
 
 # 加载环境变量配置（子进程无法继承父进程的 shell 变量）
-. /app/.env 2>/dev/null || true
+. "${TK_ENV_FILE:-/app/.env}" 2>/dev/null || true
 
-BASE_DIR="$(dirname "$0")"
-OUTPUT_FILE="$BASE_DIR/data/links/fetched-links.txt"
+BASE_DIR="${TK_APP_DIR:-$(dirname "$0")}"
+OUTPUT_FILE="${TK_DATA_DIR:-/app/data}/links/fetched-links.txt"
 FETCH_MIN_FILE_BYTES="${FETCH_MIN_FILE_BYTES:-1G}"  # 默认1G，支持 K/M/G/T 单位
 
-mkdir -p "$BASE_DIR/data/links"
-TMP_OUTPUT="/tmp/fetched-links_$$.txt"
+mkdir -p "${TK_DATA_DIR:-/app/data}/links"
+TMP_OUTPUT="${TK_DATA_DIR:-/app/data}/.tmp-fetched-links_$$.txt"
 > "$TMP_OUTPUT"
-OUTPUT_FILE="$BASE_DIR/data/links/fetched-links.txt"
+OUTPUT_FILE="${TK_DATA_DIR:-/app/data}/links/fetched-links.txt"
 
 # 记录抓取开始时间
 START_TIME=$(date +%s)
@@ -81,7 +81,7 @@ remote_file_size_check() {
     HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 30 --fail -L \
         -w "\nHTTP_CODE=%{http_code}\n" "$URL" 2>&1)"
     CURL_EXIT=$?
-    set -e
+    # set -e  # disabled for FPK native mode
 
     if [ "$CURL_EXIT" -eq 0 ]; then
         HTTP_CODE="$(echo "$HEAD_OUT" | grep HTTP_CODE | tail -n 1 | cut -d= -f2)"
@@ -108,7 +108,7 @@ remote_file_size_check() {
     RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 30 \
         --fail -L -D - -o /dev/null "$URL" 2>&1)"
     CURL_EXIT=$?
-    set -e
+    # set -e  # disabled for FPK native mode
 
     if [ "$CURL_EXIT" -eq 0 ]; then
         REMOTE_SIZE="$(echo "$RANGE_OUT" | tr -d '\r' | awk 'tolower($1)=="content-range:" {split($0,a,"/"); print a[2]}' | tr -dc '0-9')"
@@ -155,7 +155,7 @@ while IFS= read -r repo; do
     set +e
     RESP=$(curl -sL --connect-timeout 10 --max-time 30 --retry 2 "$GITHUB_API/repos/$repo/releases/latest" 2>/dev/null)
     CURL_RC=$?
-    set -e
+    # set -e  # disabled for FPK native mode
 
     [ "$CURL_RC" -ne 0 ] && echo "⚠️  GitHub API 请求失败 ($repo): curl exit $CURL_RC" && continue
     [ -z "$RESP" ] && echo "⚠️  GitHub API 返回空 ($repo)" && continue
@@ -185,7 +185,7 @@ while IFS= read -r base_url; do
 
     set +e
     content=$(curl -sL --connect-timeout 10 --max-time 30 --max-redirs 2 "$base_url" 2>/dev/null)
-    set -e
+    # set -e  # disabled for FPK native mode
     [ -n "$content" ] || continue
 
     ORIGIN="$(echo "$base_url" | sed -E 's#(https?://[^/]+).*#\1#')"

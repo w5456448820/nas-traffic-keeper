@@ -8,56 +8,13 @@
 #    - GitHub Release 链接跳过 HEAD 大小检查（CDN 返回假 Content-Length）
 #    - 支持可选单位：时间(s/m/h)、数据(K/M/G/T)
 # =========================================================
-set -e
+# set -e  # disabled for FPK native mode
 
 echo "🐳 Traffic Keeper 容器启动中..."
 
-# ---------- Alpine 软件源修复（多镜像源容错，不阻塞主流程） ----------
-ALPINE_VER="$(cut -d. -f1,2 /etc/alpine-release 2>/dev/null || echo 3.20)"
-
-# 第一步：curl 已经存在则跳过安装
-if command -v curl >/dev/null 2>&1; then
-    echo "✅ curl 已就绪，跳过软件包安装"
-else
-    echo "🔧 curl 未安装，正在尝试安装（最多尝试 3 个镜像源）..."
-
-    APK_OK=false
-    for MIRROR in \
-        "https://mirrors.aliyun.com" \
-        "https://mirrors.tuna.tsinghua.edu.cn" \
-        "http://dl-cdn.alpinelinux.org"; do
-        echo "   尝试镜像: ${MIRROR}"
-        rm -f /etc/apk/repositories
-        {
-            echo "${MIRROR}/alpine/v${ALPINE_VER}/main"
-            echo "${MIRROR}/alpine/v${ALPINE_VER}/community"
-        } > /etc/apk/repositories
-
-        # 短暂超时 + 非致命：即使 apk 失败也不让脚本整体退出
-        if (timeout 60 apk update >/tmp/apk_update.log 2>&1) && \
-           (timeout 120 apk add --no-cache curl coreutils >/tmp/apk_add.log 2>&1); then
-            echo "   ✅ ${MIRROR} 安装成功"
-            APK_OK=true
-            break
-        fi
-        echo "   ⚠️  ${MIRROR} 失败，尝试下一个..."
-    done
-
-    if [ "$APK_OK" = false ]; then
-        echo "   ⚠️  所有镜像源均不可达，将继续运行（如下载失败请检查 NAS 网络）"
-    fi
-
-    # 再次检查 curl（python:3.12-alpine 基础镜像在某些 tag 下自带 curl）
-    if command -v curl >/dev/null 2>&1; then
-        echo "   ✅ curl 可用"
-    else
-        echo "   ⚠️  curl 仍然不可用，下载将跳过"
-    fi
-fi
-
-DATA_DIR="/app/data"
-DISPLAY_DIR="/app/流量统计"
-LINKS_DIR="/app/data/links"
+DATA_DIR="${TK_DATA_DIR:-/app/data}"
+DISPLAY_DIR="${TK_DISPLAY_DIR:-/app/流量统计}"
+LINKS_DIR="${TK_DATA_DIR:-/app/data}/links"
 mkdir -p "$DATA_DIR" "$DISPLAY_DIR" "$LINKS_DIR"
 
 LAST_URL=""
@@ -203,9 +160,9 @@ reload_env() {
     echo ""
     echo "🔄 重新加载配置文件..."
 
-    if ! . /app/.env 2>/tmp/env_error.log; then
+    if ! . "${TK_ENV_FILE:-/app/.env}" >"${TK_DATA_DIR:-/app/data}/env_error.log" 2>&1; then
         echo "⚠️  配置文件有语法错误，保持当前配置继续运行"
-        cat /tmp/env_error.log 2>/dev/null || true
+        cat "${TK_DATA_DIR:-/app/data}/env_error.log" 2>/dev/null || true
         apply_defaults
         return 1
     fi
@@ -403,8 +360,8 @@ fetch_links() {
     echo ""
     echo "🔄 正在重新抓取可用下载链接..."
 
-    if [ -x /app/fetch-links.sh ]; then
-        if sh /app/fetch-links.sh && [ -s "$LINKS_DIR/fetched-links.txt" ]; then
+    if [ -x "${TK_APP_DIR:-/app}/fetch-links.sh" ]; then
+        if sh "${TK_APP_DIR:-/app}/fetch-links.sh" && [ -s "$LINKS_DIR/fetched-links.txt" ]; then
             date +%s > "$FETCH_STAMP"
             return 0
         fi
@@ -451,7 +408,7 @@ validate_link() {
     HEAD_OUT="$(curl -IL --connect-timeout 5 --max-time 30 --fail -L \
         -A "$USER_AGENT" -w "\nHTTP_CODE=%{http_code}\n" "$URL" 2>&1)"
     CURL_EXIT=$?
-    set -e
+# set -e  # disabled for FPK native mode
 
     HTTP_CODE="$(echo "$HEAD_OUT" | grep HTTP_CODE | tail -n 1 | cut -d= -f2)"
 
@@ -475,7 +432,7 @@ validate_link() {
     RANGE_OUT="$(curl -sS -L --range 0-0 --connect-timeout 5 --max-time 30 \
         --fail -L -A "$USER_AGENT" -D - -o /dev/null "$URL" 2>&1)"
     CURL_EXIT=$?
-    set -e
+# set -e  # disabled for FPK native mode
 
     if [ "$CURL_EXIT" -eq 0 ]; then
         REMOTE_SIZE="$(echo "$RANGE_OUT" | tr -d '\r' | awk 'tolower($1)=="content-range:" {split($0,a,"/"); print a[2]}' | tr -dc '0-9')"
@@ -643,7 +600,7 @@ while true; do
             HEAD_SIZE="$(curl -IL --connect-timeout 5 --max-time 30 --fail -L \
                 -A "$USER_AGENT" -w "\nHTTP_CODE=%{http_code}\n" "$URL" 2>&1 \
                 | grep -i '^content-length:' | tail -n 1 | awk '{print $2}' | tr -d '\r')"
-            set -e
+# set -e  # disabled for FPK native mode
             if is_uint "$HEAD_SIZE"; then
                 if [ "$HEAD_SIZE" -lt "$FETCH_MIN_FILE_BYTES" ]; then
                     echo "   [下载前] ❌ 文件过小，跳过：$(human_bytes "$HEAD_SIZE") < $(human_bytes "$FETCH_MIN_FILE_BYTES")"
@@ -677,7 +634,7 @@ while true; do
             -w "SIZE=%{size_download}\nTIME=%{time_total}\n" \
             "$URL" > "$METRICS_FILE"
         CURL_EXIT=$?
-        set -e
+# set -e  # disabled for FPK native mode
 
         if [ "$CURL_EXIT" -ne 0 ]; then
             case "$CURL_EXIT" in

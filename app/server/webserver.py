@@ -12,10 +12,13 @@ import time
 import threading
 import re
 
-ENV_FILE = "/app/.env"
-LOG_FILE = "/app/data/console.log"
+ENV_FILE = os.environ.get("TK_ENV_FILE", "/app/.env")
+LOG_FILE = os.path.join(os.environ.get("TK_DATA_DIR", "/app/data"), "console.log")
 
 def get_web_port():
+    env_port = os.environ.get("TK_WEB_PORT", "")
+    if env_port.isdigit():
+        return int(env_port)
     try:
         with open(ENV_FILE, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -120,8 +123,8 @@ def get_stats():
     today = datetime.date.today().strftime("%Y-%m-%d")
     data = {"DATE": today, "GENERATE_TIME": "-", "COUNT": "0",
             "SIZE_BYTES": "0", "TIME_SECONDS": "0"}
-    stats_dir = "/app/流量统计"
-    data_dir = "/app/data"
+    stats_dir = os.environ.get("TK_DISPLAY_DIR", "/app/流量统计")
+    data_dir = os.environ.get("TK_DATA_DIR", "/app/data")
     found = False
     try:
         candidates = []
@@ -187,8 +190,8 @@ def get_stats():
         data["_DURATION_HUMAN"] = f"{dur//3600:02d}:{(dur%3600)//60:02d}:{dur%60:02d}"
 
     # 链接抓取统计
-    fetch_stamp = "/app/data/links/.last-fetch"
-    fetched_links = "/app/data/links/fetched-links.txt"
+    fetch_stamp = os.path.join(os.environ.get("TK_DATA_DIR", "/app/data"), "links", ".last-fetch")
+    fetched_links = os.path.join(os.environ.get("TK_DATA_DIR", "/app/data"), "links", "fetched-links.txt")
     try:
         if os.path.exists(fetch_stamp):
             mtime = os.path.getmtime(fetch_stamp)
@@ -210,7 +213,7 @@ def get_stats():
         data["FETCH_COUNT"] = "0"
 
     # 可用链接数（经检测后有效的链接）
-    validated_links = "/app/data/links/validated_urls.list"
+    validated_links = os.path.join(os.environ.get("TK_DATA_DIR", "/app/data"), "links", "validated_urls.list")
     try:
         if os.path.exists(validated_links):
             with open(validated_links, "r", encoding="utf-8", errors="replace") as f:
@@ -222,7 +225,7 @@ def get_stats():
         data["VALID_COUNT"] = "0"
 
     # 上次链接检测时间
-    check_stamp = "/app/data/links/.last-check"
+    check_stamp = os.path.join(os.environ.get("TK_DATA_DIR", "/app/data"), "links", ".last-check")
     try:
         if os.path.exists(check_stamp):
             mtime = os.path.getmtime(check_stamp)
@@ -235,8 +238,8 @@ def get_stats():
 
     # 链接检测耗时
     try:
-        if os.path.exists("/app/data/links/check_duration.txt"):
-            with open("/app/data/links/check_duration.txt", "r", encoding="utf-8", errors="replace") as f:
+        if os.path.exists(os.path.join(os.environ.get("TK_DATA_DIR", "/app/data"), "links", "check_duration.txt")):
+            with open(os.path.join(os.environ.get("TK_DATA_DIR", "/app/data"), "links", "check_duration.txt"), "r", encoding="utf-8", errors="replace") as f:
                 dur = int(f.read().strip() or "0")
                 data["CHECK_DURATION"] = f"{dur//3600:02d}:{(dur%3600)//60:02d}:{dur%60:02d}"
         else:
@@ -248,8 +251,8 @@ def get_stats():
 
 def get_history():
     import datetime
-    data_dir = "/app/data"
-    stats_dir = "/app/流量统计"
+    data_dir = os.environ.get("TK_DATA_DIR", "/app/data")
+    stats_dir = os.environ.get("TK_DISPLAY_DIR", "/app/流量统计")
     records = []
 
     try:
@@ -404,7 +407,7 @@ body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-s
 @media(max-width:768px){.config-grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
 <div class="container">
-<div class="header"><div class="version">v2.9.2</div><h1>Traffic Keeper</h1>
+<div class="header"><h1>Traffic Keeper</h1>
 <div class="sub">飞牛 NAS 流量平衡脚本 | <span id="server-time"></span></div></div>
 <div class="stats-panel"><div class="stats" id="stats-box">
 <div class="stat-card"><div class="label">生成日期</div><div class="value" id="stat-date">-</div></div>
@@ -592,7 +595,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/links":
             try:
                 import os
-                links_dir = "/app/data/links"
+                links_dir = os.path.join(os.environ.get("TK_DATA_DIR", "/app/data"), "links")
                 total, valid, urls = 0, 0, []
                 try:
                     with open(os.path.join(links_dir, "fetched-links.txt"), "r", encoding="utf-8", errors="replace") as f:
